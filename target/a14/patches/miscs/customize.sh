@@ -72,6 +72,12 @@ LOG "-Disable DymLock (Dynamic Lockscreen plugin system) to prevent 11s SystemUI
 SET_PROP "system" "ro.lockscreen.dls_enabled" "false"
 SET_PROP "system" "persist.sys.dls_enabled" "0"
 
+LOG "-Force GSM-only telephony to prevent CDMA init ANR on SM-A145F/TUR (GSM-only device)"
+SET_PROP "system" "ro.telephony.default_network" "9"
+
+LOG "-Enable AOD always-on doze mode"
+SET_PROP "system" "ro.doze.always_on" "true"
+
 LOG "-Advanced UI/HWUI Caching and Rendering Optimizations"
 SET_PROP "system" "ro.hwui.texture_cache_size" "72"
 SET_PROP "system" "ro.hwui.layer_cache_size" "48"
@@ -104,6 +110,13 @@ LOG "-Injecting Deep I/O and Kernel Scheduler Tweaks into init"
 cat << 'EOF' >> "$WORK_DIR/vendor/etc/init/init.s5e3830.rc"
 
 on property:sys.boot_completed=1
+    # Delay AOD settings write to avoid SettingsProvider race condition at boot
+    setprop nerv.aod.pending 1
+
+on property:nerv.aod.pending=1
+    exec - system system -- /system/bin/settings put secure doze_always_on 1
+    setprop nerv.aod.pending 0
+
     # Advanced I/O Tweaks for eMMC bottleneck
     write /sys/block/mmcblk0/queue/read_ahead_kb 2048
     write /sys/block/mmcblk0/queue/scheduler "mq-deadline"

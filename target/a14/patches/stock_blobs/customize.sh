@@ -88,3 +88,7 @@ LOG "-Adding RIL permission blobs"
 ADD_TO_WORK_DIR "$TARGET_FIRMWARE" "system" "system/etc/permissions/privapp-permissions-com.sec.app.RilErrorNotifier.xml" 0 0 644 "u:object_r:system_lib_file:s0"
 ADD_TO_WORK_DIR "$TARGET_FIRMWARE" "system" "system/etc/permissions/privapp-permissions-com.sec.app.RilErrorNotifier.xml" 0 0 644 "u:object_r:system_lib_file:s0"
 ADD_TO_WORK_DIR "$TARGET_FIRMWARE" "system" "system/etc/permissions/privapp-permissions-com.sec.android.RilServiceModeApp.xml" 0 0 644 "u:object_r:system_lib_file:s0"
+
+LOG "-Replacing apns-conf.xml to prevent TelephonyProvider ANR"
+DELETE_FROM_WORK_DIR "system" "system/etc/apns-conf.xml"
+ADD_TO_WORK_DIR "$TARGET_FIRMWARE" "system" "system/etc/apns-conf.xml" 0 0 644 "u:object_r:system_file:s0"

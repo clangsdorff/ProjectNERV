@@ -19,7 +19,7 @@ file_path = sys.argv[1]
 with open(file_path, "r") as f:
     content = f.read()
 
-pattern = r"(\.method public query\(Landroid/net/Uri;.*?\)Landroid/database/Cursor;).*?(\.end method)"
+pattern = r"(\.method public (?:final )?query\(Landroid/net/Uri;.*?\)Landroid/database/Cursor;).*?(\.end method)"
 
 def count_registers(sig):
     m = re.search(r"\((.*?)\)", sig)
@@ -79,7 +79,7 @@ file_path = sys.argv[1]
 with open(file_path, "r") as f:
     content = f.read()
 
-pattern = r"(\.method public query\(Landroid/net/Uri;.*?\)Landroid/database/Cursor;).*?(\.end method)"
+pattern = r"(\.method public (?:final )?query\(Landroid/net/Uri;.*?\)Landroid/database/Cursor;).*?(\.end method)"
 
 def count_registers(sig):
     m = re.search(r"\((.*?)\)", sig)
