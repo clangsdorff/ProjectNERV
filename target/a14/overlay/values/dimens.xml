@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Display Notch & Status Bar -->
+    <dimen name="status_bar_height">@dimen/status_bar_height_portrait</dimen>
+    <dimen name="status_bar_height_portrait">4.069977mm</dimen>
+    <dimen name="status_bar_height_landscape">24dp</dimen>
+    <dimen name="status_bar_height_default">4.069977mm</dimen>
+    
+    <!-- Rounded Corners (Neutralizing S24 FE values) -->
+    <dimen name="rounded_corner_radius">0dp</dimen>
+    <dimen name="rounded_corner_radius_top">36dp</dimen>
+    <dimen name="rounded_corner_radius_bottom">36dp</dimen>
+    <dimen name="rounded_corner_radius_adjustment">0px</dimen>
+    <dimen name="rounded_corner_radius_top_adjustment">0px</dimen>
+    <dimen name="rounded_corner_radius_bottom_adjustment">0px</dimen>
+
+    <!-- Desktop Mode -->
+    <dimen name="config_desktop_mode_min_width">0dp</dimen>
+    
+    <!-- Brightness -->
+    <item type="dimen" name="config_screenBrightnessDimFloat">0.05</item>
+    <item type="dimen" name="config_screenBrightnessSettingDefaultFloat">-2.0</item>
+    <item type="dimen" name="config_screenBrightnessSettingMaximumFloat">-2.0</item>
+    <item type="dimen" name="config_screenBrightnessSettingMinimumFloat">-2.0</item>
+</resources>
