@@ -1,0 +1,4 @@
+id=clockpack
+name=Add ClockPack Service instead of AODService for low-end devices
+author=cLangsdorff
+description=Removes AODService and adds ClockPack from stock firmware.
