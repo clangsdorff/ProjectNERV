@@ -260,8 +260,6 @@ jobs:
           key: target-fw-${{ matrix.target }}-A145FXXUBDYJ5
 
       - name: Build ROM
-        env:
-          DEBUG: true
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/make_rom.sh
@@ -269,7 +267,6 @@ jobs:
       - name: Upload to GoFile
         run: |
           ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
-          SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
-          RESPONSE=$(curl -s -F "file=@$ZIP_FILE" -F "token=${{ secrets.GOFILE_TOKEN }}" -F "folderId=${{ secrets.GOFILE_FOLDER_ID }}" "https://${SERVER}.gofile.io/uploadFile")
+          RESPONSE=$(curl -s -F "file=@$ZIP_FILE" -F "token=${{ secrets.GOFILE_TOKEN }}" -F "folderId=${{ secrets.GOFILE_FOLDER_ID }}" "https://upload-eu-par.gofile.io/uploadFile")
           echo "Download link:"
           echo "$RESPONSE" | jq -r '.data.downloadPage'

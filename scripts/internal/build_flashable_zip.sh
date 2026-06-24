@@ -119,13 +119,10 @@ CREATE_ROM_ZIP()
     sed -i "s.$TMP_DIR/..g" "$STORED_LIST" \
         && sed -i "s.$TMP_DIR/..g" "$COMPRESSED_LIST"
 
-    local ZIP_COMPRESSION=9
-    $DEBUG && ZIP_COMPRESSION=1
-    
     (
     cd "$TMP_DIR" || exit 1
     EVAL "7z a -tzip -mx=0 -mmt=$(nproc) \"$TMP_DIR/rom.zip\" @\"$STORED_LIST\"" || exit 1
-    EVAL "7z a -tzip -mx=$ZIP_COMPRESSION -mmt=$(nproc) \"$TMP_DIR/rom.zip\" @\"$COMPRESSED_LIST\"" || exit 1
+    EVAL "7z a -tzip -mx=9 -mmt=$(nproc) \"$TMP_DIR/rom.zip\" @\"$COMPRESSED_LIST\"" || exit 1
     )
 
     rm -f "$STORED_LIST" "$COMPRESSED_LIST"
@@ -240,7 +237,7 @@ GENERATE_OP_LIST()
         fi
     } > "$OP_LIST_FILE"
 
-    LOG "Partition sizes: system=$PARTITION_SIZE $( $HAS_VENDOR && echo "vendor=$(GET_IMAGE_SIZE "$TMP_DIR/vendor.img")" ) $( $HAS_PRODUCT && echo "product=$(GET_IMAGE_SIZE "$TMP_DIR/product.img")" ) $( $HAS_SYSTEM_EXT && echo "system_ext=$(GET_IMAGE_SIZE "$TMP_DIR/system_ext.img")" ) $( $HAS_ODM && echo "odm=$(GET_IMAGE_SIZE "$TMP_DIR/odm.img")" ) total=$OCCUPIED_SPACE limit=$TARGET_SUPER_GROUP_SIZE"
+    LOGD "Partition sizes: system=$PARTITION_SIZE $( [ $HAS_VENDOR ] && echo "vendor=$(GET_IMAGE_SIZE "$TMP_DIR/vendor.img")" ) $( [ $HAS_PRODUCT ] && echo "product=$(GET_IMAGE_SIZE "$TMP_DIR/product.img")" ) $( [ $HAS_SYSTEM_EXT ] && echo "system_ext=$(GET_IMAGE_SIZE "$TMP_DIR/system_ext.img")" ) $( [ $HAS_ODM ] && echo "odm=$(GET_IMAGE_SIZE "$TMP_DIR/odm.img")" ) total=$OCCUPIED_SPACE limit=$TARGET_SUPER_GROUP_SIZE"
 
     if [[ "$OCCUPIED_SPACE" -gt "$TARGET_SUPER_GROUP_SIZE" ]]; then
         LOGE "OS size ($OCCUPIED_SPACE) is bigger than the target group size ($TARGET_SUPER_GROUP_SIZE)"

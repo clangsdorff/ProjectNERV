@@ -21,7 +21,7 @@ source "$SRC_DIR/scripts/utils/build_utils.sh" || exit 1
 
 FORCE=false
 FS_TYPE=""
-SPARSE=true
+SPARSE=false
 AVB_SIGN=""
 MAP_FILE=false
 INPUT_DIR=""
@@ -91,12 +91,9 @@ BUILD_IMAGE_MKFS()
             fi
             ;;
         "erofs")
-            local EROFS_COMPRESSION="lz4hc,9"
-            $DEBUG && EROFS_COMPRESSION="lz4hc,1"
-            
             BUILD_CMD+="mkfs.erofs "
             # https://android.googlesource.com/platform/build/+/refs/tags/android-15.0.0_r1/core/Makefile#2084
-            BUILD_CMD+="-z \"$EROFS_COMPRESSION\" "
+            BUILD_CMD+="-z \"lz4hc,9\" "
             BUILD_CMD+="-b \"4096\" "
             BUILD_CMD+="--mount-point \"$MOUNT_POINT\" "
             BUILD_CMD+="--fs-config-file \"$FS_CONFIG_FILE\" "
