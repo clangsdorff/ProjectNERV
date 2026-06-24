@@ -1,0 +1,4 @@
+id=disable_liveblur
+name=Disable Live Blur
+author=cLangsdorff
+description=a Python script that disables Live Blur from SystemUI.
