@@ -52,6 +52,8 @@ system/priv-app/BeaconManager
 system/priv-app/SecSdhms
 system/priv-app/KnoxCore
 system/app/KnoxAttestationAgent
+system/priv-app/KLMSAgent
+system/app/UniversalMDMClient
 system/app/TEEgrisTuiService
 system/bin/insthk
 system/etc/init/insthk_teegris.rc

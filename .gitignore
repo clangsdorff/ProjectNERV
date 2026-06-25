@@ -16,3 +16,4 @@ security/platform.pk8
 Dockerfile.build
 .DS_Store
 /.agents
+CLAUDE.md
