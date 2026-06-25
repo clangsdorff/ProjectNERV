@@ -27,13 +27,13 @@ file_path = sys.argv[1]
 with open(file_path, "r") as f:
     content = f.read()
 
-pattern1 = r"(move-result\s+v\d+\s+)sput-boolean\s+(v\d+),\s+Lcom/android/systemui/QpRune;->QUICK_PANEL_BLUR_DEFAULT:Z"
+pattern1 = r"(sput-boolean\s+(v\d+),\s+Lcom/android/systemui/QpRune;->QUICK_PANEL_BLUR_DEFAULT:Z)"
 def rep1(m):
-    return f"{m.group(1)}const/4 {m.group(2)}, 0x0\n\n    sput-boolean {m.group(2)}, Lcom/android/systemui/QpRune;->QUICK_PANEL_BLUR_DEFAULT:Z"
+    return f"const/4 {m.group(2)}, 0x0\n    {m.group(1)}"
 
-pattern2 = r"(:goto_[a-zA-Z0-9_]+\s+)sput-boolean\s+(v\d+),\s+Lcom/android/systemui/QpRune;->QUICK_PANEL_BLUR_MASSIVE:Z"
+pattern2 = r"(sput-boolean\s+(v\d+),\s+Lcom/android/systemui/QpRune;->QUICK_PANEL_BLUR_MASSIVE:Z)"
 def rep2(m):
-    return f"{m.group(1)}const/4 {m.group(2)}, 0x1\n\n    sput-boolean {m.group(2)}, Lcom/android/systemui/QpRune;->QUICK_PANEL_BLUR_MASSIVE:Z"
+    return f"const/4 {m.group(2)}, 0x1\n    {m.group(1)}"
 
 new_content, count1 = re.subn(pattern1, rep1, content)
 new_content, count2 = re.subn(pattern2, rep2, new_content)
