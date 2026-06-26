@@ -266,7 +266,8 @@ jobs:
 
       - name: Upload to GoFile
         run: |
+          SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
           ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
-          RESPONSE=$(curl -s -F "file=@$ZIP_FILE" -F "token=${{ secrets.GOFILE_TOKEN }}" -F "folderId=${{ secrets.GOFILE_FOLDER_ID }}" "https://upload-eu-par.gofile.io/uploadFile")
+          RESPONSE=$(curl -s -F "file=@$ZIP_FILE" -F "token=${{ secrets.GOFILE_TOKEN }}" -F "folderId=${{ secrets.GOFILE_FOLDER_ID }}" "https://${SERVER}.gofile.io/contents/uploadfile")
           echo "Download link:"
           echo "$RESPONSE" | jq -r '.data.downloadPage'
