@@ -53,3 +53,5 @@ LOG_STEP_IN "- Fixing Edge lighting corner radius"
 MODEL=$(echo -n "$TARGET_FIRMWARE" | cut -d "/" -f 1)
 SET_PROP "system" "ro.factory.model" "$MODEL"
 LOG_STEP_OUT
+
+

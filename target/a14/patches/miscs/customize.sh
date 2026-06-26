@@ -147,7 +147,24 @@ LOG "-Fix: Disable SGM FgCheckThread screen-on timeout"
 SET_PROP "system" "ro.gamemanager.sdhms.enable" "false"
 SET_PROP "system" "persist.sys.game.mode.check" "0"
 
+
 LOG "-Fix: Tune LMKD thresholds"
 SET_PROP "system" "ro.slmk.psi_critical" "200"
 SET_PROP "system" "ro.slmk.swap_free_low_percentage" "20"
 SET_PROP "system" "ro.slmk.2nd.swap_free_low_percentage" "30"
+
+LOG "-Fix Chrome crash: export libbinder_ndk.so to public namespace"
+_PL_FILE="$WORK_DIR/system/system/etc/public.libraries.txt"
+if [ -f "$_PL_FILE" ]; then
+    if ! grep -q "libbinder_ndk.so" "$_PL_FILE"; then
+        echo "libbinder_ndk.so" >> "$_PL_FILE"
+        LOG "- Added libbinder_ndk.so to public.libraries.txt"
+    else
+        LOG "- libbinder_ndk.so already present in public.libraries.txt"
+    fi
+else
+    LOG "- public.libraries.txt not found, creating and adding libbinder_ndk.so"
+    mkdir -p "$(dirname "$_PL_FILE")"
+    echo "libbinder_ndk.so" > "$_PL_FILE"
+fi
+unset _PL_FILE
