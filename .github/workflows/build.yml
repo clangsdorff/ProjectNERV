@@ -77,10 +77,14 @@ jobs:
           cargo build --release
           sudo cp target/release/samloader /usr/local/bin/samloader
 
-      - name: Patch external/make.sh (Skip broken samloader)
+      - name: Patch scripts to bypass python samloader build
         run: |
-          # Pula apenas a compilação do samloader python antigo
-          sed -i 's/.*build_samloader.*/# &/g' external/make.sh
+          # Substitui a instalação do samloader python quebrada por "true" (sucesso automático)
+          find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
+          
+          # Cria um link simbólico para o samloader em Rust no venv do build
+          mkdir -p out/tools/venv/bin
+          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
         if: steps.cache-tools.outputs.cache-hit != 'true'
@@ -162,9 +166,14 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Patch external/make.sh (Skip broken samloader)
+      - name: Patch scripts to bypass python samloader build
         run: |
-          sed -i 's/.*build_samloader.*/# &/g' external/make.sh
+          # Substitui a instalação do samloader python quebrada por "true" (sucesso automático)
+          find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
+          
+          # Cria o link simbólico também na etapa final do build
+          mkdir -p out/tools/venv/bin
+          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies (if not cached)
         if: steps.cache-tools.outputs.cache-hit != 'true'
