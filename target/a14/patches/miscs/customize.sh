@@ -115,6 +115,8 @@ on property:sys.boot_completed=1
 
 on property:nerv.aod.pending=1
     exec - system system -- /system/bin/settings put secure doze_always_on 1
+    exec - system system -- /system/bin/settings put secure screensaver_enabled 0
+    exec - system system -- /system/bin/settings put secure screensaver_activate_on_sleep 0
     setprop nerv.aod.pending 0
 
     # Advanced I/O Tweaks for eMMC bottleneck

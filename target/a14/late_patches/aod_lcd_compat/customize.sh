@@ -134,6 +134,7 @@ done
 if [ -f "$DISPLAY_STATE_CONTROLLER_SMALI" ]; then
     LOG "- [lcd_aod_fix/2] Patching DisplayStateController OFF→DOZE_SUSPEND for TSP tap-to-show"
     python3 -c '
+import re
 import sys
 
 file_path = sys.argv[1]
@@ -144,14 +145,16 @@ if "if-ne v1, v2, :cond_tsp_cont" in content:
     print("Already patched — skipping component 2")
     sys.exit(0)
 
-old = (
-    "    if-eqz v1, :cond_1c\n"
-    "\n"
-    "    iget v4, p1, Landroid/hardware/display/DisplayManagerInternal"
-    "$DisplayPowerRequest;->dozeScreenStateReason:I"
+# Match the if-eqz v1 check immediately before dozeScreenStateReason iget.
+# Label name varies between APK versions — match by surrounding context instead.
+pattern = (
+    r"(    if-eqz v1, :cond_\w+\n)"
+    r"\n"
+    r"(    iget v4, p1, Landroid/hardware/display/DisplayManagerInternal"
+    r"\$DisplayPowerRequest;->dozeScreenStateReason:I)"
 )
-new = (
-    "    if-eqz v1, :cond_1c\n"
+replacement = (
+    r"\1"
     "\n"
     "    const/4 v2, 0x1\n"
     "\n"
@@ -161,17 +164,16 @@ new = (
     "\n"
     "    :cond_tsp_cont\n"
     "\n"
-    "    iget v4, p1, Landroid/hardware/display/DisplayManagerInternal"
-    "$DisplayPowerRequest;->dozeScreenStateReason:I"
+    r"\2"
 )
 
-if old not in content:
+new_content, count = re.subn(pattern, replacement, content, count=1)
+if count == 0:
     print("Warning: target pattern not found in DisplayStateController.smali — component 2 not applied")
     sys.exit(0)
 
-content = content.replace(old, new, 1)
 with open(file_path, "w") as f:
-    f.write(content)
+    f.write(new_content)
 print("OK: dozeScreenState=OFF(1) now maps to DOZE_SUSPEND(4) for TSP single-tap detection")
 ' "$DISPLAY_STATE_CONTROLLER_SMALI"
 else
