@@ -1,6 +1,0 @@
-id=deknox_mdm_bypass
-name=Deknox MDM Bypass
-version=1.0
-versionCode=1
-author=clangsdorff & antigravity
-description=Nukes SecContentProvider queries to fix 1500ms Samsung Keyboard lag caused by missing Knox MDM policies on A14 port.

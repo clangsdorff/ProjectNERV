@@ -1,6 +1,0 @@
-id=aod_wander_compat
-name=AOD Wander Compat
-version=1.0
-versionCode=1
-author=cLangsdorff & Claude
-description=Patches AODService DN.smali to eliminate oversized burn-in protection wandering ranges on LCD. On OLED the screen blacks out during the AOD transition hiding element movement; on LCD the screen stays on so large ranges cause visible sliding. Forces the small-range paths for PortClock, PortBattery, PortBottom and zeroes the PortNowBar range.
