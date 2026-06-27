@@ -1,10 +1,12 @@
+#!/bin/bash
+
 SET_FLOATING_FEATURE_CONFIG "SEC_FLOATING_FEATURE_FRAMEWORK_SUPPORT_BLOCKCHAIN_SERVICE" --delete
 
 if [ "$TARGET_SINGLE_SYSTEM_IMAGE" == "qssi" ]; then
     ADD_TO_WORK_DIR "a05snsdxx" "system" "."
 elif [ "$TARGET_SINGLE_SYSTEM_IMAGE" == "essi" ]; then
     ADD_TO_WORK_DIR "gts9fexx" "system" "system/bin" 0 2000 751 "u:object_r:system_file:s0"
-    ADD_TO_WORK_DIR "gts9fexx" "system" "system/lib/libandroid_servers.so" 0 0 644 "u:object_r:system_lib_file:s0"More actions
+    ADD_TO_WORK_DIR "gts9fexx" "system" "system/lib/libandroid_servers.so" 0 0 644 "u:object_r:system_lib_file:s0"
     ADD_TO_WORK_DIR "gts9fexx" "system" "system/lib/libmdf.so" 0 0 644 "u:object_r:system_lib_file:s0"
     ADD_TO_WORK_DIR "gts9fexx" "system" "system/lib64/libandroid_servers.so" 0 0 644 "u:object_r:system_lib_file:s0"
     ADD_TO_WORK_DIR "gts9fexx" "system" "system/lib64/libepm.so" 0 0 644 "u:object_r:system_lib_file:s0"
@@ -127,3 +129,27 @@ if [[ "$TARGET_SINGLE_SYSTEM_IMAGE" = "essi" ]]; then
     DELETE_FROM_WORK_DIR "system" "system/lib64/libsec_semHal.so"
     DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.security.sem@1.0.so"
 fi
+
+# ==== INÍCIO DO PATCH DINÂMICO VIA SED (SUBSTITUI O GIT APPLY) ====
+echo "==== Aplicando patches dinâmicos do DeKnox via sed ===="
+
+DUALDAR=$(find . -type f -name "DualDARPolicy.smali")
+HDM=$(find . -type f -name "HdmManager.smali")
+
+patch_smali() {
+    local file=$1
+    if [ -n "$file" ] && [ -f "$file" ]; then
+        echo "Modificando $file..."
+        # Remove as checagens condicionais que verificam o status do Knox
+        sed -i '/if-\(eqz\|nez\|null\|nonnull\|eq\|ne\|lt\|le\|gt\|ge\).* :cond_/d' "$file"
+        # Injeta um registrador nulo e força os métodos do Knox a retornarem Null (falsificando o status)
+        sed -i 's/return-object \([pv][0-9]*\)/const\/4 \1, 0x0\n    return-object \1/g' "$file"
+        echo "[+] Patch aplicado com sucesso em $file"
+    else
+        echo "[-] Arquivo não encontrado (DeKnox bypass): $file"
+    fi
+}
+
+patch_smali "$DUALDAR"
+patch_smali "$HDM"
+echo "==== DeKnox patches dinâmicos concluídos ===="
