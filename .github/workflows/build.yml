@@ -7,61 +7,84 @@ on:
       - 'fifteen'
 
 jobs:
-  build:
+  warmup-cache:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [a52sxq]
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           submodules: false
-
-      - name: Set up build environment
+      - name: Fetch submodules recursively
+        run: |
+          git rm --cached -f target/a53x/patches/vendor || true
+          git rm --cached -f target/m34x/patches/vendor || true
+          git rm --cached -f external/samloader || true
+          git submodule update --init --recursive
+      - name: Set up environment
         run: |
           sudo apt update
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build samloader-rs
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils pcre2-bin webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
+      - name: Install Rust and Samloader
         run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source $HOME/.cargo/env
           cargo install samloader
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
-
-      - name: Patch scripts to bypass compilation of tools
+      - name: Bypass Python build
         run: |
-          # Pula qualquer tentativa de compilar ferramentas que dão erro
-          sed -i 's/build_android_tools/# build_android_tools/g' scripts/build_dependencies.sh
-          # Substitui a instalação do samloader python por sucesso automático
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
 
+  build:
+    runs-on: ubuntu-24.04
+    needs: warmup-cache
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [a52sxq]
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Fetch submodules
+        run: |
+          git rm --cached -f target/a53x/patches/vendor || true
+          git rm --cached -f target/m34x/patches/vendor || true
+          git rm --cached -f external/samloader || true
+          git submodule update --init --recursive
+      - name: Set up env
+        run: |
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils pcre2-bin webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source $HOME/.cargo/env
+          mkdir -p out/tools/venv/bin
+          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
+          find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
       - name: Download Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           mkdir -p "$ODIN_DIR/SM-S711B_EUX" "$ODIN_DIR/SM-A528B_BTU"
+          export PATH=$PATH:$HOME/.cargo/bin
           samloader download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "$ODIN_DIR/SM-S711B_EUX"
           samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "$ODIN_DIR/SM-A528B_BTU"
-          # Extração básica
           find "$ODIN_DIR" -name "*.zip" -exec unzip -o {} -d {}_extracted \;
-
       - name: Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          # Executa o make_rom.sh ignorando erros de dependências
-          bash ./scripts/make_rom.sh || true
-
-      - name: Upload results
+          export SKIP_DEPENDENCY_CHECK=1
+          bash ./scripts/make_rom.sh
+      - name: Upload
         run: |
           ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
           if [ -n "$ZIP_FILE" ]; then
              SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
              curl -F "file=@$ZIP_FILE" "https://${SERVER}.gofile.io/contents/uploadfile"
           fi
+          # Também salvar como artefato
+          cp "$ZIP_FILE" ./rom_final.zip
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ROM-A52s
+          path: rom_final.zip
