@@ -62,6 +62,16 @@ SET_PROP "system" "ro.surface_flinger.supports_background_blur" "0"
 SET_PROP "system" "ro.sf.blurs_are_expensive" "1"
 SET_PROP "system" "persist.sys.sf.disable_blurs" "1"
 
+LOG "-Disable Wide Color Gamut and HDR to prevent EGL config mismatch stutters on A14 LCD panel"
+SET_PROP "system" "ro.surface_flinger.has_wide_color_display" "false"
+SET_PROP "system" "ro.surface_flinger.has_HDR_display" "false"
+SET_PROP "system" "persist.sys.sf.color_saturation" "1.0"
+SET_PROP "system" "persist.sys.sf.native_mode" "0"
+
+LOG "-Disable DymLock (Dynamic Lockscreen plugin system) to prevent 11s SystemUI freeze on boot"
+SET_PROP "system" "ro.lockscreen.dls_enabled" "false"
+SET_PROP "system" "persist.sys.dls_enabled" "0"
+
 LOG "-Advanced UI/HWUI Caching and Rendering Optimizations"
 SET_PROP "system" "ro.hwui.texture_cache_size" "72"
 SET_PROP "system" "ro.hwui.layer_cache_size" "48"
@@ -83,13 +93,10 @@ SET_PROP "system" "dalvik.vm.heapminfree" "8m"
 SET_PROP "system" "dalvik.vm.heapmaxfree" "32m"
 SET_PROP "system" "dalvik.vm.heaptargetutilization" "0.75"
 
-LOG "-Increase ActivityManager timeouts for Exynos 850 (prevents fake ANRs on heavy apps)"
-SET_PROP "system" "ro.hw_timeout_multiplier" "5"
-
 # Force native compilation during Boot Animation (User explicitly requested this)
 SET_PROP "system" "pm.dexopt.first-boot" "speed-profile"
 SET_PROP "system" "pm.dexopt.boot" "speed-profile"
-SET_PROP "system" "pm.dexopt.shared" "speed-profile"
+SET_PROP "system" "pm.dexopt.shared" "speed"
 SET_PROP "system" "pm.dexopt.bg-dexopt" "speed-profile"
 
 LOG "-Injecting Deep I/O and Kernel Scheduler Tweaks into init"
@@ -116,6 +123,8 @@ EOF
 
 LOG "-Injecting Native SysConfig Component Override to prevent boot-time Keystore ANRs"
 ADD_TO_WORK_DIR "$SRC_DIR/target/a14/patches/miscs/files" "system" "system/etc/sysconfig/smartsuggestions_override.xml" 0 0 644 "u:object_r:system_file:s0"
+
+
 
 LOG "-Disable Thermal Throttling, SDHMS, and Knox via Props"
 SET_PROP "system" "ro.config.knox" "0"

@@ -57,6 +57,10 @@ system/bin/insthk
 system/etc/init/insthk_teegris.rc
 system/etc/sysconfig/preinstalled-packages-com.samsung.sec.android.teegris.tui_service.xml
 system/priv-app/CMHProvider
+system/priv-app/RubinVersion36
+system/etc/default-permissions/default-permissions-com.samsung.android.rubin.app.xml
+system/etc/permissions/privapp-permissions-com.samsung.android.rubin.app.xml
+system/etc/permissions/signature-permissions-com.samsung.android.rubin.app.xml
 "
 
 # Wi-Fi Hotspot Overlays
