@@ -78,7 +78,7 @@ SYSTEM_DEBLOAT+="
 system/app/DRParser
 system/app/KidsHome_Installer
 system/app/FBAppManager_NS
-system/app/MoccaMobile
+
 system/app/PlayAutoInstallConfig
 system/app/SamsungPassAutofill_v1
 system/app/SamsungTTSVoice_de_DE_f00
