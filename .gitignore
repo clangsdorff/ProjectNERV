@@ -17,3 +17,4 @@ Dockerfile.build
 .DS_Store
 /.agents
 CLAUDE.md
+Handoff_ProjectNERV.md
