@@ -44,6 +44,7 @@ system/priv-app/IPService
 system/priv-app/DeviceQualityAgent35
 system/priv-app/SMT
 system/priv-app/SamsungSmartSuggestions
+system/priv-app/MediaSearch
 system/app/BixbyRoutines
 system/priv-app/BixbyRoutines
 system/priv-app/McfServer

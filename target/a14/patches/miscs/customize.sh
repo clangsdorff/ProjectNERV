@@ -93,7 +93,7 @@ SET_PROP "system" "ro.hwui.text_large_cache_height" "2048"
 SET_PROP "system" "debug.sf.enable_gl_backpressure" "0"
 SET_PROP "system" "debug.sf.hw" "0"
 SET_PROP "system" "debug.sf.latch_unsignaled" "0"
-SET_PROP "system" "ro.surface_flinger.max_frame_buffer_acquired_buffers" "2"
+SET_PROP "vendor" "ro.surface_flinger.max_frame_buffer_acquired_buffers" "2"
 
 LOG "-Dalvik VM Advanced GC & DexOpt Tuning to prevent freezes"
 SET_PROP "system" "dalvik.vm.heapminfree" "8m"
