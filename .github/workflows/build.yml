@@ -14,16 +14,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: false
-      - name: Fetch submodules recursively
+          
+      - name: Fetch submodules (without recursive to prevent errors)
         run: |
           git rm --cached -f target/a53x/patches/vendor || true
           git rm --cached -f target/m34x/patches/vendor || true
           git rm --cached -f external/samloader || true
-          git submodule update --init --recursive
+          # INICIALIZA SEM O --recursive
+          git submodule update --init
+          
       - name: Set up environment
         run: |
           sudo apt update
           sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils pcre2-bin webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
+          
       - name: Install Rust and Samloader
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -31,9 +35,14 @@ jobs:
           cargo install samloader
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
-      - name: Bypass Python build
+          
+      - name: Bypass failing tools
         run: |
+          # Ignora o samloader python
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
+          # Ignora a compilação do android-tools (que não baixamos os vendors)
+          sed -i 's/.*build_android_tools.*/# build_android_tools/g' external/make.sh || true
+          sed -i 's/.*build_android_tools.*/# build_android_tools/g' scripts/build_dependencies.sh || true
 
   build:
     runs-on: ubuntu-24.04
@@ -47,12 +56,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: false
-      - name: Fetch submodules
+          
+      - name: Fetch submodules (without recursive)
         run: |
           git rm --cached -f target/a53x/patches/vendor || true
           git rm --cached -f target/m34x/patches/vendor || true
           git rm --cached -f external/samloader || true
-          git submodule update --init --recursive
+          git submodule update --init
+          
       - name: Set up env
         run: |
           sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils pcre2-bin webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
@@ -60,7 +71,19 @@ jobs:
           source $HOME/.cargo/env
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
+          
+      - name: Bypass failing tools
+        run: |
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
+          sed -i 's/.*build_android_tools.*/# build_android_tools/g' external/make.sh || true
+          sed -i 's/.*build_android_tools.*/# build_android_tools/g' scripts/build_dependencies.sh || true
+          
+      - name: Build dependencies
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
+          ./scripts/build_dependencies.sh
+
       - name: Download Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
@@ -68,21 +91,29 @@ jobs:
           export PATH=$PATH:$HOME/.cargo/bin
           samloader download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "$ODIN_DIR/SM-S711B_EUX"
           samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "$ODIN_DIR/SM-A528B_BTU"
-          find "$ODIN_DIR" -name "*.zip" -exec unzip -o {} -d {}_extracted \;
+          
+      - name: Extract Firmwares
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
+          ./scripts/extract_fw.sh --ignore-target
+          ./scripts/extract_fw.sh --ignore-source
+
       - name: Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           bash ./scripts/make_rom.sh
+
       - name: Upload
         run: |
           ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
           if [ -n "$ZIP_FILE" ]; then
              SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
              curl -F "file=@$ZIP_FILE" "https://${SERVER}.gofile.io/contents/uploadfile"
+             cp "$ZIP_FILE" ./rom_final.zip
           fi
-          # Também salvar como artefato
-          cp "$ZIP_FILE" ./rom_final.zip
+          
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
