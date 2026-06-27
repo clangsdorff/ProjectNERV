@@ -16,10 +16,15 @@ jobs:
         with:
           submodules: false
 
-      - name: Fetch public submodules only
+      - name: Fetch submodules recursively (ignoring broken ones)
         run: |
-          git submodule init external/android-tools external/apktool external/erofs-utils external/img2sdat external/signapk
-          git submodule update external/android-tools external/apktool external/erofs-utils external/img2sdat external/signapk
+          # Remove do índice os submodules privados/quebrados que impedem o clone recursivo
+          git rm --cached -f target/a53x/patches/vendor || true
+          git rm --cached -f target/m34x/patches/vendor || true
+          git rm --cached -f external/samloader || true
+          
+          # Inicializa e atualiza recursivamente todos os submodules públicos legítimos e seus filhos
+          git submodule update --init --recursive
 
       - name: Free disk space (1/3)
         run: |
@@ -72,6 +77,11 @@ jobs:
           cargo build --release
           sudo cp target/release/samloader /usr/local/bin/samloader
 
+      - name: Patch external/make.sh (Skip broken samloader)
+        run: |
+          # Pula apenas a compilação do samloader python antigo
+          sed -i 's/.*build_samloader.*/# &/g' external/make.sh
+
       - name: Build dependencies
         if: steps.cache-tools.outputs.cache-hit != 'true'
         run: |
@@ -107,10 +117,12 @@ jobs:
         with:
           submodules: false
 
-      - name: Fetch public submodules only
+      - name: Fetch submodules recursively (ignoring broken ones)
         run: |
-          git submodule init external/android-tools external/apktool external/erofs-utils external/img2sdat external/signapk
-          git submodule update external/android-tools external/apktool external/erofs-utils external/img2sdat external/signapk
+          git rm --cached -f target/a53x/patches/vendor || true
+          git rm --cached -f target/m34x/patches/vendor || true
+          git rm --cached -f external/samloader || true
+          git submodule update --init --recursive
 
       - name: Restore build tools
         id: cache-tools
@@ -136,7 +148,6 @@ jobs:
           sudo modprobe erofs f2fs
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Removida a exigência de secrets.PLATFORM_KEY para evitar falha se o usuário não tiver configurado
 
       - name: Restore samloader-rs binary
         id: cache-samloader
@@ -150,6 +161,16 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '21'
+
+      - name: Patch external/make.sh (Skip broken samloader)
+        run: |
+          sed -i 's/.*build_samloader.*/# &/g' external/make.sh
+
+      - name: Build dependencies (if not cached)
+        if: steps.cache-tools.outputs.cache-hit != 'true'
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          ./scripts/build_dependencies.sh
 
       - name: Restore source firmware extraction cache (S23 FE)
         id: cache-source-fw
