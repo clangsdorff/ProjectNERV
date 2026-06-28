@@ -25,10 +25,7 @@ jobs:
       - name: Set up environment
         run: |
           sudo apt update
-          # ADICIONAMOS zlib1g-dev E android-sdk-libsparse-utils PARA SUBSTITUIR AS FERRAMENTAS
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler zlib1g-dev android-sdk-libsparse-utils adb fastboot
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler android-sdk-libsparse-utils adb fastboot
           
       - name: Install Rust and Samloader
         run: |
@@ -38,16 +35,17 @@ jobs:
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
           
-      - name: Mutilate Android Tools build
+      - name: Bypass failing tools (Function Override)
         run: |
-          # DELETA as linhas onde a função build_android_tools é chamada no script
-          sed -i '/build_android_tools/d' scripts/build_dependencies.sh
-          # Substitui a compilação do python samloader por sucesso
+          # Sobrescreve as funções de build problemáticas injetando a redefinição delas no fim dos scripts
+          for file in external/make.sh scripts/build_dependencies.sh; do
+            if [ -f "$file" ]; then
+              echo -e "\nbuild_android_tools() {\n    return 0\n}" >> "$file"
+              echo -e "\nbuild_samloader() {\n    return 0\n}" >> "$file"
+            fi
+          done
+          # Substitui a instalação do samloader python por sucesso
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
-          # Cria links virtuais das ferramentas nativas para a pasta do NERV
-          mkdir -p out/tools/linux/x86/bin
-          ln -sf $(which simg2img) out/tools/linux/x86/bin/simg2img
-          ln -sf $(which img2simg) out/tools/linux/x86/bin/img2simg
 
   build:
     runs-on: ubuntu-24.04
@@ -62,7 +60,7 @@ jobs:
         with:
           submodules: false
           
-      - name: Fetch submodules
+      - name: Fetch submodules (without recursive)
         run: |
           git rm --cached -f target/a53x/patches/vendor || true
           git rm --cached -f target/m34x/patches/vendor || true
@@ -71,22 +69,28 @@ jobs:
           
       - name: Set up env
         run: |
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler zlib1g-dev android-sdk-libsparse-utils adb fastboot
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler android-sdk-libsparse-utils adb fastboot
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
           
-      - name: Mutilate Android Tools build
+      - name: Bypass failing tools (Function Override)
         run: |
-          sed -i '/build_android_tools/d' scripts/build_dependencies.sh
+          for file in external/make.sh scripts/build_dependencies.sh; do
+            if [ -f "$file" ]; then
+              echo -e "\nbuild_android_tools() {\n    return 0\n}" >> "$file"
+              echo -e "\nbuild_samloader() {\n    return 0\n}" >> "$file"
+            fi
+          done
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
+          
+          # Cria links simbólicos das ferramentas nativas do Ubuntu para o NERV usar
           mkdir -p out/tools/linux/x86/bin
-          ln -sf $(which simg2img) out/tools/linux/x86/bin/simg2img
-          ln -sf $(which img2simg) out/tools/linux/x86/bin/img2simg
+          ln -sf $(which simg2img) out/tools/linux/x86/bin/simg2img || true
+          ln -sf $(which img2simg) out/tools/linux/x86/bin/img2simg || true
+          ln -sf $(which mke2fs) out/tools/linux/x86/bin/mke2fs || true
+          ln -sf $(which e2fsdroid) out/tools/linux/x86/bin/e2fsdroid || true
           
       - name: Build dependencies
         run: |
@@ -99,8 +103,18 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           mkdir -p "$ODIN_DIR/SM-S711B_EUX" "$ODIN_DIR/SM-A528B_BTU"
           export PATH=$PATH:$HOME/.cargo/bin
+          
+          # Baixa e extrai S23 FE
           samloader download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "$ODIN_DIR/SM-S711B_EUX"
+          ZIP_S23=$(find "$ODIN_DIR/SM-S711B_EUX" -maxdepth 1 -name "*.zip" | head -n 1)
+          unzip -o "$ZIP_S23" -d "$ODIN_DIR/SM-S711B_EUX" && rm -f "$ZIP_S23"
+          echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" > "$ODIN_DIR/SM-S711B_EUX/.downloaded"
+          
+          # Baixa e extrai A52s
           samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "$ODIN_DIR/SM-A528B_BTU"
+          ZIP_A52S=$(find "$ODIN_DIR/SM-A528B_BTU" -maxdepth 1 -name "*.zip" | head -n 1)
+          unzip -o "$ZIP_A52S" -d "$ODIN_DIR/SM-A528B_BTU" && rm -f "$ZIP_A52S"
+          echo "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" > "$ODIN_DIR/SM-A528B_BTU/.downloaded"
           
       - name: Extract Firmwares
         run: |
