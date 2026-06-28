@@ -20,14 +20,13 @@ jobs:
           git rm --cached -f target/a53x/patches/vendor || true
           git rm --cached -f target/m34x/patches/vendor || true
           git rm --cached -f external/samloader || true
-          # INICIALIZA SEM O --recursive
           git submodule update --init
           
       - name: Set up environment
         run: |
           sudo apt update
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
-          # Configura a identidade do Git para o android-tools conseguir compilar
+          # ADICIONAMOS zlib1g-dev E android-sdk-libsparse-utils PARA SUBSTITUIR AS FERRAMENTAS
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler zlib1g-dev android-sdk-libsparse-utils adb fastboot
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
@@ -39,10 +38,16 @@ jobs:
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
           
-      - name: Bypass failing tools
+      - name: Mutilate Android Tools build
         run: |
-          # Ignora o samloader python
+          # DELETA as linhas onde a função build_android_tools é chamada no script
+          sed -i '/build_android_tools/d' scripts/build_dependencies.sh
+          # Substitui a compilação do python samloader por sucesso
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
+          # Cria links virtuais das ferramentas nativas para a pasta do NERV
+          mkdir -p out/tools/linux/x86/bin
+          ln -sf $(which simg2img) out/tools/linux/x86/bin/simg2img
+          ln -sf $(which img2simg) out/tools/linux/x86/bin/img2simg
 
   build:
     runs-on: ubuntu-24.04
@@ -57,7 +62,7 @@ jobs:
         with:
           submodules: false
           
-      - name: Fetch submodules (without recursive)
+      - name: Fetch submodules
         run: |
           git rm --cached -f target/a53x/patches/vendor || true
           git rm --cached -f target/m34x/patches/vendor || true
@@ -66,8 +71,7 @@ jobs:
           
       - name: Set up env
         run: |
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
-          # Configura a identidade do Git também na etapa final de build
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler zlib1g-dev android-sdk-libsparse-utils adb fastboot
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
@@ -76,9 +80,13 @@ jobs:
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
           
-      - name: Bypass failing tools
+      - name: Mutilate Android Tools build
         run: |
+          sed -i '/build_android_tools/d' scripts/build_dependencies.sh
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
+          mkdir -p out/tools/linux/x86/bin
+          ln -sf $(which simg2img) out/tools/linux/x86/bin/simg2img
+          ln -sf $(which img2simg) out/tools/linux/x86/bin/img2simg
           
       - name: Build dependencies
         run: |
