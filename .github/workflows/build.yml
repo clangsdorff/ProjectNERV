@@ -20,9 +20,9 @@ jobs:
         with:
           submodules: false
 
-      - name: Debug e Correção de Configurações
+      - name: Ajustar Configurações (S23 Base)
         run: |
-          # Troca base S23 FE (S711B) pelo S23 normal (S911B) que tem One UI 7 estável
+          # Garante que SM-S911B seja a base em todo o projeto
           find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
           find . -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/S911BXXSAEYI1/g' {} +
           sed -i 's/SOURCE_FIRMWARE=.*/SOURCE_FIRMWARE="SM-S911B\/EUX\/S911BXXSAEYI1"/' target/a52sxq/config.sh
@@ -34,7 +34,7 @@ jobs:
           git rm --cached -f external/samloader 2>/dev/null || true
           git submodule update --init
 
-      - name: Instalar dependências e Samloader Python
+      - name: Instalar dependências e Samloader via GitHub
         run: |
           sudo apt-get update
           sudo apt-get install -yq \
@@ -44,10 +44,10 @@ jobs:
             curl xxd patchelf flex bison lz4 libarchive-tools \
             build-essential python3 python3-pip python3-venv \
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
-            e2fsprogs webp pcre2-utils
+            e2fsprogs webp pcre2-utils git
           
-          # Instala samloader via pip (Suporta -v nativamente)
-          pip3 install --break-system-packages samloader
+          # Instala samloader diretamente do código fonte para evitar erro de versão no PyPI
+          pip3 install --break-system-packages git+https://github.com/nss-group/samloader.git
 
       - name: Configurar JDK 21
         uses: actions/setup-java@v4
@@ -55,9 +55,8 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Bypass build de ferramentas (CHECK_TOOLS false)
+      - name: Bypass build de ferramentas
         run: |
-          # Impede o script de tentar compilar as ferramentas problemáticas
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
@@ -66,23 +65,21 @@ jobs:
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Criar links de ferramentas e Magiskboot
+      - name: Criar links e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
-          # Usa as ferramentas nativas do Ubuntu para o NERV
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # Baixa o Magiskboot binário pronto
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
           
-          # Linka o samloader python para o path que o NERV espera
+          # Linka o samloader instalado via pip para o path do NERV
           ln -sf $(which samloader) out/tools/venv/bin/samloader
 
       - name: Download firmware SOURCE (S23 - One UI 7)
@@ -93,10 +90,11 @@ jobs:
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
           
-          # Tentativas de versões One UI 7 conhecidas para S23 (Usando sintaxe Python Samloader)
+          # Tentativas de download com Samloader Python
           for VERSION in "S911BXXSAEYI1" "S911BXXSAEXI1" "S911BXXSAEXF1"; do
              echo "Tentando $MODEL/$REGION/$VERSION..."
-             samloader -m "$MODEL" -r "$REGION" -v "$VERSION" download -o "$DEST" \
+             samloader -m "$MODEL" -r "$REGION" checkupdate
+             samloader -m "$MODEL" -r "$REGION" download -v "$VERSION" -o "$DEST" \
                && DOWNLOADED=true && break || sleep 5
           done
           
@@ -117,8 +115,8 @@ jobs:
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
           
-          # Download A52s
-          samloader -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" download -o "$DEST" || samloader -m "$MODEL" -r "$REGION" download -o "$DEST"
+          # Download A52s via Python Samloader
+          samloader -m "$MODEL" -r "$REGION" download -v "A528BXXSBGYI3" -o "$DEST" || samloader -m "$MODEL" -r "$REGION" download -o "$DEST"
           
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
