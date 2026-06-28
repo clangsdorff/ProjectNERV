@@ -20,15 +20,22 @@ jobs:
         with:
           submodules: false
 
-      - name: Configurar submodules e erofs-utils
+      - name: Debug e Correção de Estrutura (Forçar S23 normal)
+        run: |
+          # Força as configurações corretas com os IMEIs válidos em todos os arquivos de configuração
+          find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
+          find . -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/352404911234563/g' {} +
+          find . -name "*.sh" -exec sed -i 's/352404911234563/352404911234563/g' {} +
+          
+          # Garante que target/a52sxq/config.sh aponte para o S23 com o IMEI correto
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S911B/EUX/352404911234563"|' target/a52sxq/config.sh
+
+      - name: Remover submodules fantasma do índice git
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
           git rm --cached -f external/samloader 2>/dev/null || true
-          git submodule update --init external/erofs-utils external/apktool external/img2sdat external/signapk
-          cd external/erofs-utils
-          git submodule update --init --recursive
-          cd ../..
+          git submodule update --init
 
       - name: Instalar dependências do sistema
         run: |
@@ -42,18 +49,28 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs webp pcre2-utils
 
-      - name: Instalar Rust e compilar samloader-rs
+      - name: Instalar Rust e compilar samloader-rs com patch
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
+
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs && git checkout 1.2.0
+          cd /tmp/samloader-rs
+          git checkout 1.2.0
+
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
+
           cargo build --release
-          sudo cp target/release/samloader /usr/local/bin/samloader
+          cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Preparar ferramentas e Magiskboot
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Criar links para binários e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
@@ -66,7 +83,8 @@ jobs:
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
+
+          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
         run: |
@@ -75,54 +93,87 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (SM-S911B)
+      - name: Download firmware SOURCE (SM-S911B / S23 - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          source $HOME/.cargo/env
           MODEL="SM-S911B"
           REGION="EUX"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          
-          # Captura a versão completa para evitar erro de IMEI
-          FULL_VER=$(samloader -m "$MODEL" -r "$REGION" checkupdate | head -n 1)
-          echo "Versão completa detectada: $FULL_VER"
-          
-          samloader download -m "$MODEL" -r "$REGION" -v "$FULL_VER" -d "$DEST"
-          unzip -o $(find "$DEST" -name "*.zip") -d "$DEST"
-          
-          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-          
-          # Injeta a versão completa nos arquivos de configuração
-          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"$MODEL/$REGION/$FULL_VER\"|" target/a52sxq/config.sh
-          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"$MODEL/$REGION/$FULL_VER\"|" unica/configs/qssi.sh
 
-      - name: Download firmware TARGET (A52s)
+          # Baixa o firmware mais recente usando o samloader compilado com a sintaxe correta do Rust
+          samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
+
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
+
+          # Extrai os nomes reais dos arquivos para processamento
+          AP_FILE=$(find "$DEST" -maxdepth 1 -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC_FILE=$(find "$DEST" -maxdepth 1 -name "CSC_*.tar.md5" | head -1 | xargs basename)
+          CP_FILE=$(find "$DEST" -maxdepth 1 -name "CP_*.tar.md5" | head -1 | xargs basename)
+
+          # Extração cirúrgica das versões curtas (PDA, CSC e MODEM) baseada nos nomes dos arquivos reais
+          PDA=$(echo "$AP_FILE" | cut -d'_' -f2)
+          CSC=$(echo "$CSC_FILE" | cut -d'_' -f3)
+          MODEM=$(echo "$CP_FILE" | cut -d'_' -f2)
+
+          # Cria o marcador .downloaded perfeito que o extract_fw.sh espera
+          echo "${PDA}/${CSC}/${MODEM}" > "$DEST/.downloaded"
+          echo "Marker SOURCE criado: $(cat $DEST/.downloaded)"
+
+      - name: Download firmware TARGET (SM-A528B / A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          source $HOME/.cargo/env
           MODEL="SM-A528B"
           REGION="BTU"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
+
           samloader download -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
-          unzip -o $(find "$DEST" -name "*.zip") -d "$DEST"
-          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
+
+          # Extrai os nomes reais dos arquivos para o TARGET
+          AP_FILE=$(find "$DEST" -maxdepth 1 -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC_FILE=$(find "$DEST" -maxdepth 1 -name "CSC_*.tar.md5" | head -1 | xargs basename)
+          CP_FILE=$(find "$DEST" -maxdepth 1 -name "CP_*.tar.md5" | head -1 | xargs basename)
+
+          PDA=$(echo "$AP_FILE" | cut -d'_' -f2)
+          CSC=$(echo "$CSC_FILE" | cut -d'_' -f3)
+          MODEM=$(echo "$CP_FILE" | cut -d'_' -f2)
+
+          echo "${PDA}/${CSC}/${MODEM}" > "$DEST/.downloaded"
+          echo "Marker TARGET criado: $(cat $DEST/.downloaded)"
+
+      - name: Extract Firmwares
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
+          ./scripts/extract_fw.sh --ignore-target
+          ./scripts/extract_fw.sh --ignore-source
 
       - name: Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          ./scripts/extract_fw.sh
           bash ./scripts/make_rom.sh
 
+      - name: Upload
+        run: |
+          ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+             SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+             curl -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile"
+             cp "$ZIP_FILE" ./rom_final.zip
+          fi
+          
       - name: Upload Artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s-OneUI7
-          path: out/*.zip
+          name: ROM-A52s
+          path: rom_final.zip
