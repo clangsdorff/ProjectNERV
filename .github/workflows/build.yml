@@ -2,6 +2,9 @@ name: Build ProjectNERV
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'fifteen'
 
 jobs:
   build:
@@ -15,89 +18,57 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
+          fetch-depth: 0
 
-      - name: Instalar dependências e Rust
+      - name: Configurar Ambiente
         run: |
           sudo apt-get update
-          sudo apt-get install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3 python3-pip python3-venv device-tree-compiler android-sdk-libsparse-utils adb fastboot e2fsprogs pcre2-utils
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          source $HOME/.cargo/env
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache
+          pip3 install --user samloader-rs
 
-      - name: Compilar Samloader Patched
+      - name: Ajustar Configurações (A52s)
         run: |
-          source $HOME/.cargo/env
-          git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs && git checkout 1.2.0
-          patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
-          cargo build --release
-          sudo cp target/release/samloader /usr/local/bin/samloader
-
-      - name: Bypass Build de Ferramentas
-        run: |
-          # Desativa compilação de ferramentas e cria links simbólicos para as nativas do Ubuntu
-          sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
-          sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
-          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
-          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
-          mkdir -p out/tools/bin out/tools/venv/bin
-          ln -sf $(which simg2img) out/tools/bin/simg2img
-          ln -sf $(which img2simg) out/tools/bin/img2simg
-          ln -sf $(which mke2fs)   out/tools/bin/mke2fs
-          ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
-          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
-          MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
-          curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
-          unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
-          mv /tmp/libmagiskboot.so out/tools/bin/magiskboot && chmod +x out/tools/bin/magiskboot
-
-      - name: Download Firmwares com Retry (S23 FE One UI 7 + A52s)
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
+          # Garante que o projeto use o modelo correto
+          find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
-          # 1. Download S23 FE
-          DEST_S="$ODIN_DIR/SM-S711B_EUX"
-          mkdir -p "$DEST_S" && cd "$DEST_S"
-          VERSION_S="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
-          for i in {1..5}; do
-             samloader download --model "SM-S711B" --region "EUX" --version "$VERSION_S" --out-dir "." && break || (rm -f *.enc4 && sleep 20)
-          done
-          unzip -o *.zip && rm -f *.zip
-          AP_S=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC_S=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP_S=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP_S}/${CSC_S}/${CP_S}" > ".downloaded"
-          cd ../../..
+          # Injeta IMEIs de teste para o extrator
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
+          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
 
-          # 2. Download A52s
-          DEST_T="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST_T" && cd "$DEST_T"
-          VERSION_T="A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3"
-          for i in {1..5}; do
-             samloader download --model "SM-A528B" --region "BTU" --version "$VERSION_T" --out-dir "." && break || (rm -f *.enc4 && sleep 20)
-          done
-          unzip -o *.zip && rm -f *.zip
-          AP_T=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC_T=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP_T=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP_T}/${CSC_T}/${CP_T}" > ".downloaded"
-          cd ../../..
-
-      - name: Build ROM
+      - name: Configurar Wrapper do Samloader (Interceptador)
         run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          export SKIP_DEPENDENCY_CHECK=1
-          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
-          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
-          ./scripts/extract_fw.sh --ignore-target
-          ./scripts/extract_fw.sh --ignore-source
-          bash ./scripts/make_rom.sh
+          mkdir -p $HOME/custom_bin
+          cat << 'EOF' > $HOME/custom_bin/samloader
+          #!/bin/bash
+          if [[ "$*" == *"check-update"* ]] || [[ "$*" == *"checkupdate"* ]]; then
+            if [[ "$*" == *"SM-S711B"* ]]; then
+              echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
+              exit 0
+            elif [[ "$*" == *"SM-A528B"* ]]; then
+              echo "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3"
+              exit 0
+            fi
+          fi
+          # Adiciona retry no download real
+          MAX_RETRIES=3
+          for i in $(seq 1 $MAX_RETRIES); do
+            $HOME/.local/bin/samloader "$@" && exit 0
+            echo "Tentativa $i falhou. Reiniciando em 10s..."
+            sleep 10
+          done
+          exit 1
+          EOF
+          chmod +x $HOME/custom_bin/samloader
+          echo "$HOME/custom_bin" >> $GITHUB_PATH
+
+      - name: Build ProjectNERV
+        run: |
+          chmod +x buildenv.sh
+          ./buildenv.sh ${{ matrix.target }}
 
       - name: Upload Artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s-OneUI7
+          name: ProjectNERV-${{ matrix.target }}
           path: out/*.zip
