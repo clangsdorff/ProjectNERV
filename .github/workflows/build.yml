@@ -20,6 +20,7 @@ jobs:
           git rm --cached -f target/a53x/patches/vendor || true
           git rm --cached -f target/m34x/patches/vendor || true
           git rm --cached -f external/samloader || true
+          # INICIALIZA SEM O --recursive
           git submodule update --init
           
       - name: Set up environment
@@ -34,18 +35,6 @@ jobs:
           cargo install samloader
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
-          
-      - name: Bypass failing tools (Function Override)
-        run: |
-          # Sobrescreve as funções de build problemáticas injetando a redefinição delas no fim dos scripts
-          for file in external/make.sh scripts/build_dependencies.sh; do
-            if [ -f "$file" ]; then
-              echo -e "\nbuild_android_tools() {\n    return 0\n}" >> "$file"
-              echo -e "\nbuild_samloader() {\n    return 0\n}" >> "$file"
-            fi
-          done
-          # Substitui a instalação do samloader python por sucesso
-          find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
 
   build:
     runs-on: ubuntu-24.04
@@ -75,17 +64,21 @@ jobs:
           mkdir -p out/tools/venv/bin
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
           
-      - name: Bypass failing tools (Function Override)
+      - name: Bypass failing tools (Function Short-Circuit)
         run: |
+          # Modifica diretamente a declaração original das funções nos scripts
+          # Injeta "return 0;" logo na abertura da função para cancelá-la com sucesso imediato
           for file in external/make.sh scripts/build_dependencies.sh; do
             if [ -f "$file" ]; then
-              echo -e "\nbuild_android_tools() {\n    return 0\n}" >> "$file"
-              echo -e "\nbuild_samloader() {\n    return 0\n}" >> "$file"
+              sed -i 's/build_android_tools.*{/build_android_tools() { return 0;/g' "$file"
+              sed -i 's/build_samloader.*{/build_samloader() { return 0;/g' "$file"
             fi
           done
+          
+          # Substitui a instalação do samloader python por sucesso automático
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
           
-          # Cria links simbólicos das ferramentas nativas do Ubuntu para o NERV usar
+          # Cria os links virtuais das ferramentas nativas já instaladas no Ubuntu
           mkdir -p out/tools/linux/x86/bin
           ln -sf $(which simg2img) out/tools/linux/x86/bin/simg2img || true
           ln -sf $(which img2simg) out/tools/linux/x86/bin/img2simg || true
@@ -94,6 +87,10 @@ jobs:
           
       - name: Build dependencies
         run: |
+          # Força a configuração da identidade do Git imediatamente antes de rodar o script
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           ./scripts/build_dependencies.sh
