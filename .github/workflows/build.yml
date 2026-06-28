@@ -20,9 +20,9 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações e IMEIs
+      - name: Ajustar Configurações e IMEIs de Validação
         run: |
-          # Garante que todo o projeto use o modelo correto S23 FE (SM-S711B)
+          # Garante o modelo correto S23 FE (SM-S711B)
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
           # Injeta IMEIs de 15 dígitos nas configs. Isso é OBRIGATÓRIO para o extrator.
@@ -37,7 +37,7 @@ jobs:
           git rm --cached -f external/samloader 2>/dev/null || true
           git submodule update --init
 
-      - name: Instalar dependências
+      - name: Instalar dependências do sistema
         run: |
           sudo apt-get update
           sudo apt-get install -yq \
@@ -58,11 +58,35 @@ jobs:
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           cargo build --release
           cp target/release/samloader $HOME/.cargo/bin/samloader
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Configurar Wrapper do Samloader (O Pulo do Gato)
+        run: |
+          # Cria um diretório de ferramentas personalizado
+          mkdir -p $HOME/custom_bin
+          
+          # Cria o script interceptador
+          cat << 'EOF' > $HOME/custom_bin/samloader
+          #!/bin/bash
+          # Se o script perguntar a versão (checkupdate), respondemos a One UI 7 fixa
+          if [[ "$*" == *"check-update"* ]] || [[ "$*" == *"checkupdate"* ]]; then
+             if [[ "$*" == *"SM-S711B"* ]]; then
+                echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
+                exit 0
+             elif [[ "$*" == *"SM-A528B"* ]]; then
+                echo "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3"
+                exit 0
+             fi
+          fi
+          # Para qualquer outro comando (como download), usa o samloader real
+          exec $HOME/.cargo/bin/samloader "$@"
+          EOF
+          
+          chmod +x $HOME/custom_bin/samloader
+          # Adiciona o diretório do wrapper no INÍCIO do PATH
+          echo "$HOME/custom_bin" >> $GITHUB_PATH
 
       - name: Bypass build de ferramentas
         run: |
-          # Desabilita o build de ferramentas que já temos no sistema Ubuntu
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
@@ -79,7 +103,9 @@ jobs:
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
+          
+          # Linka o wrapper também na pasta que o NERV checa
+          ln -sf $HOME/custom_bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
         run: |
@@ -91,49 +117,42 @@ jobs:
       - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST" && cd "$DEST"
           
-          # Sintaxe Rust correta: download --model ...
-          $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" --out-dir "."
+          # Download usando o wrapper
+          samloader download --model "SM-S711B" --region "EUX" --version "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" --out-dir "."
           
-          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" && rm -f "$ZIP"
+          unzip -o *.zip && rm -f *.zip
           
-          # Coleta nomes reais e cria marcador para o extrator encontrar o BL
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           
-          echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
+          # Marcador estritamente PDA/CSC/MODEM
+          echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
       - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST" && cd "$DEST"
           
-          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || \
-          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --out-dir "."
+          samloader download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || \
+          samloader download --model "SM-A528B" --region "BTU" --out-dir "."
           
-          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" && rm -f "$ZIP"
-          
+          unzip -o *.zip && rm -f *.zip
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
+          echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
       - name: Extract and Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Força IMEIs no ambiente do terminal para o extrator aceitar
+          # Força IMEIs de 15 dígitos para passar no validador
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
           
