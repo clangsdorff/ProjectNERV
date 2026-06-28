@@ -1,38 +1,14 @@
-#
-# Copyright (C) 2025 Salvo Giangreco
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
-
-# Device configuration file for Galaxy A52s 5G (a52sxq)
+# Configuration for Galaxy A52s 5G (a52sxq) - Optimized Preset (UN1CA Logic)
 TARGET_NAME="Galaxy A52s 5G"
 TARGET_CODENAME="a52sxq"
 
-# --- INÍCIO DAS NOSSAS CONFIGURAÇÕES ---
-# ROM que vai doar o sistema (S23 FE - One UI 7)
-SOURCE_FIRMWARE="SM-S911B/EUX/S911BXXSAEYI1"
-# Firmware do A52s que será usado como base de boot/vendor
-TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
+# Donor Firmware (S23 - One UI 7)
+export SOURCE_FIRMWARE="SM-S911B/EUX/latest"
+# A52s Base Firmware
+export TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
 
-# Comandos de limpeza
-export DEBLOAT=1
-export AGGRESSIVE_DEBLOAT=1
-export SKIP_DEKNOX=0
-# --- FIM DAS NOSSAS CONFIGURAÇÕES ---
-
-TARGET_EXTRA_FIRMWARES=()
-TARGET_API_LEVEL=34
+# System Configuration
+TARGET_API_LEVEL=35
 TARGET_PRODUCT_FIRST_API_LEVEL=30
 TARGET_VENDOR_API_LEVEL=30
 TARGET_SINGLE_SYSTEM_IMAGE="qssi"
@@ -41,7 +17,7 @@ TARGET_SUPER_PARTITION_SIZE=10643046400
 TARGET_SUPER_GROUP_SIZE=10638852096
 TARGET_HAS_SYSTEM_EXT=false
 
-# SEC Product Feature
+# Hardware Features
 TARGET_AUDIO_SUPPORT_ACH_RINGTONE=false
 TARGET_AUDIO_SUPPORT_DUAL_SPEAKER=true
 TARGET_AUDIO_SUPPORT_VIRTUAL_VIBRATION=false
@@ -60,3 +36,8 @@ TARGET_MDNIE_WEAKNESS_SOLUTION_FUNCTION="0"
 TARGET_MULTI_MIC_MANAGER_VERSION="07010"
 TARGET_SSRM_CONFIG_NAME="siop_a52sxq_sm7325"
 TARGET_SUPPORT_CUTOUT_PROTECTION=true
+
+# Optimizations
+export DEBLOAT=1
+export AGGRESSIVE_DEBLOAT=1
+export SKIP_DEKNOX=0
