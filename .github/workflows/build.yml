@@ -7,110 +7,8 @@ on:
       - 'fifteen'
 
 jobs:
-  warmup-cache:
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Remover submodules fantasma
-        run: |
-          git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
-          git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
-          git rm --cached -f external/samloader 2>/dev/null || true
-          git submodule update --init
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force || true
-          sudo docker builder prune -a || true
-
-      - name: Set up build environment
-        run: |
-          sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -yq \
-            p7zip-full jq attr ccache clang ffmpeg golang \
-            libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
-            libzstd-dev lld protobuf-compiler webp pcre2-utils \
-            curl xxd patchelf flex bison lz4 libarchive-tools build-essential \
-            python3 python3-pip python3-venv device-tree-compiler \
-            android-sdk-libsparse-utils adb fastboot e2fsprogs
-          sudo modprobe erofs || true
-          sudo modprobe f2fs || true
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Restore samloader-rs binary
-        id: cache-samloader
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cargo/bin/samloader
-          key: samloader-rs-patched-v3
-
-      - name: Build samloader-rs (with version selection patch)
-        if: steps.cache-samloader.outputs.cache-hit != 'true'
-        run: |
-          git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs
-          git checkout 1.2.0
-          curl -fL \
-            "https://raw.githubusercontent.com/clangsdorff/ProjectNERV/paradigm/patches/samloader-rs/0001-version-select.patch" \
-            -o /tmp/0001-version-select.patch
-          git apply /tmp/0001-version-select.patch
-          cargo build --release
-          cp target/release/samloader ~/.cargo/bin/samloader
-
-      - name: Save samloader-rs binary
-        if: steps.cache-samloader.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cargo/bin/samloader
-          key: samloader-rs-patched-v3
-
-      - name: Restore build tools
-        id: cache-tools
-        uses: actions/cache/restore@v4
-        with:
-          path: out/tools
-          key: tools-${{ runner.os }}-${{ hashFiles('scripts/build_dependencies.sh') }}
-
-      - name: Patch build_dependencies.sh
-        run: |
-          sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
-          sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
-          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'             scripts/build_dependencies.sh
-          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'         scripts/build_dependencies.sh
-
-      - name: Build dependencies
-        if: steps.cache-tools.outputs.cache-hit != 'true'
-        run: |
-          source ./buildenv.sh a52sxq
-          ./scripts/build_dependencies.sh
-
-      - name: Save build tools
-        if: steps.cache-tools.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: out/tools
-          key: tools-${{ runner.os }}-${{ hashFiles('scripts/build_dependencies.sh') }}
-
   build:
     runs-on: ubuntu-24.04
-    needs: warmup-cache
-
     strategy:
       fail-fast: false
       matrix:
@@ -122,6 +20,12 @@ jobs:
         with:
           submodules: false
 
+      - name: Debug e Correção de Estrutura
+        run: |
+          # Correção agressiva: Força o SOURCE_FIRMWARE correto em qualquer config global
+          find unica/configs/ -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
+          find unica/configs/ -name "*.sh" -exec sed -i 's/352404911234563/S711BXXSAEYI1/g' {} +
+
       - name: Remover submodules fantasma
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
@@ -129,204 +33,158 @@ jobs:
           git rm --cached -f external/samloader 2>/dev/null || true
           git submodule update --init
 
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force || true
-          sudo docker builder prune -a || true
-
-      - name: Set up build environment
+      - name: Instalar dependências do sistema
         run: |
           sudo apt-get update
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -yq \
+          sudo apt-get install -yq \
             p7zip-full jq attr ccache clang ffmpeg golang \
-            libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
-            libzstd-dev lld protobuf-compiler webp pcre2-utils \
-            curl xxd patchelf flex bison lz4 libarchive-tools build-essential \
-            python3 python3-pip python3-venv device-tree-compiler \
-            android-sdk-libsparse-utils adb fastboot e2fsprogs
-          sudo modprobe erofs || true
-          sudo modprobe f2fs || true
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          echo -n "${{ secrets.PLATFORM_KEY_PK8 }}" | base64 --decode > security/platform.pk8
-          echo -n "${{ secrets.PLATFORM_KEY_PEM }}" | base64 --decode > security/platform.x509.pem
+            libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev \
+            libpcre2-dev libzstd-dev lld protobuf-compiler \
+            curl xxd patchelf flex bison lz4 libarchive-tools \
+            build-essential python3 python3-pip python3-venv \
+            device-tree-compiler android-sdk-libsparse-utils adb fastboot \
+            e2fsprogs webp pcre2-utils
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Instalar Rust e compilar samloader-rs com patch
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source $HOME/.cargo/env
 
-      - name: Set up JDK 21
+          git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
+          cd /tmp/samloader-rs
+          git checkout 1.2.0
+
+          # Tenta localizar o patch localmente primeiro (dentro do seu fork)
+          LOCAL_PATCH="$GITHUB_WORKSPACE/patches/samloader-rs/0001-version-select.patch"
+          
+          if [ -f "$LOCAL_PATCH" ]; then
+            echo "Aplicando patch local..."
+            patch -p1 < "$LOCAL_PATCH"
+          else
+            echo "Patch local não encontrado. Tentando baixar via URLs..."
+            PATCH_URLS=(
+              "https://raw.githubusercontent.com/clangsdorff/ProjectNERV/fifteen/patches/samloader-rs/0001-version-select.patch"
+              "https://raw.githubusercontent.com/clangsdorff/ProjectNERV/main/patches/samloader-rs/0001-version-select.patch"
+            )
+            for URL in "${PATCH_URLS[@]}"; do
+              if curl -fL "$URL" -o /tmp/samloader.patch; then
+                echo "Patch baixado de $URL"
+                patch -p1 < /tmp/samloader.patch && break
+              fi
+            done
+          fi
+
+          cargo build --release
+          cp target/release/samloader $HOME/.cargo/bin/samloader
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Configurar JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Restore samloader-rs binary
-        id: cache-samloader
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cargo/bin/samloader
-          key: samloader-rs-patched-v3
-
-      - name: Build samloader-rs (if not cached)
-        if: steps.cache-samloader.outputs.cache-hit != 'true'
-        run: |
-          git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs
-          git checkout 1.2.0
-          curl -fL \
-            "https://raw.githubusercontent.com/clangsdorff/ProjectNERV/paradigm/patches/samloader-rs/0001-version-select.patch" \
-            -o /tmp/0001-version-select.patch
-          git apply /tmp/0001-version-select.patch
-          cargo build --release
-          cp target/release/samloader ~/.cargo/bin/samloader
-
-      - name: Garantir samloader no PATH
-        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
-      - name: Restore build tools
-        id: cache-tools
-        uses: actions/cache/restore@v4
-        with:
-          path: out/tools
-          key: tools-${{ runner.os }}-${{ hashFiles('scripts/build_dependencies.sh') }}
-
-      - name: Patch build_dependencies.sh
+      - name: Patch build_dependencies.sh (Flags False)
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
-          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'             scripts/build_dependencies.sh
-          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'         scripts/build_dependencies.sh
+          sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
+          sed -i 's/^IMG2SDAT=true$/IMG2SDAT=false/'           scripts/build_dependencies.sh
+          sed -i 's/^MAGISKBOOT=true$/MAGISKBOOT=false/'       scripts/build_dependencies.sh
+          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
+          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Build dependencies (if not cached)
-        if: steps.cache-tools.outputs.cache-hit != 'true'
+      - name: Criar links para binários e Magiskboot
         run: |
+          mkdir -p out/tools/bin out/tools/venv/bin
+          ln -sf $(which simg2img) out/tools/bin/simg2img
+          ln -sf $(which img2simg) out/tools/bin/img2simg
+          ln -sf $(which mke2fs)   out/tools/bin/mke2fs
+          ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
+          
+          MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
+          curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
+          unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
+          mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
+          chmod +x out/tools/bin/magiskboot
+
+          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
+
+      - name: Build dependencies (deve pular tudo via CHECK_TOOLS)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Restore source firmware extraction cache
-        id: cache-source-fw
-        uses: actions/cache/restore@v4
-        with:
-          path: out/fw/SM-S911B_EUX
-          key: source-fw-${{ matrix.target }}-S911BXXSAEYI1
-
-      - name: Restore source firmware download marker
-        if: steps.cache-source-fw.outputs.cache-hit == 'true'
+      - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          mkdir -p "$ODIN_DIR/SM-S911B_EUX"
-          echo "S911BXXSAEYI1/S911BOXMAEYI1/S911BXXSAEYI1" > "$ODIN_DIR/SM-S911B_EUX/.downloaded"
-
-      - name: Download source firmware (SM-S911B / S23 - One UI 7)
-        if: steps.cache-source-fw.outputs.cache-hit != 'true'
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          DEST="$ODIN_DIR/SM-S911B_EUX"
+          source $HOME/.cargo/env
+          MODEL="SM-S711B"
+          REGION="EUX"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          THREADS=8
-          for i in 1 2 3 4 5; do
-            rm -rf "$DEST" && mkdir -p "$DEST"
-            samloader download -m "SM-S911B" -r "EUX" \
-              -v "S911BXXSAEYI1" \
-              -d "$DEST" && break
-            echo "Tentativa $i falhou..."
-            [ "$THREADS" -gt 1 ] && THREADS=$(( THREADS / 2 ))
-            sleep 10
-          done
-          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          [ -z "$ZIP" ] && echo "Download falhou" && exit 1
-          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          AP=$(find  "$DEST" -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
-          CSC=$(find "$DEST" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
-          CP=$(find  "$DEST" -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-          echo "Marker: $(cat $DEST/.downloaded)"
 
-      - name: Extract source firmware
-        if: steps.cache-source-fw.outputs.cache-hit != 'true'
+          DOWNLOADED=false
+          # One UI 7 versions exatas
+          for VERSION in "S711BXXSAEYI1" "S711BXXSAEXB1" "S711BXXSAEXI1" "S711BXXSAEXF1"; do
+            echo "Tentando $MODEL/$REGION/$VERSION..."
+            samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
+              && DOWNLOADED=true && break || true
+            sleep 5
+          done
+
+          if [ "${DOWNLOADED}" != "true" ]; then
+            echo "::error::Nenhuma versão One UI 7 disponível para $MODEL/$REGION"
+            exit 1
+          fi
+
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+
+      - name: Download firmware TARGET (SM-A528B / A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          source $HOME/.cargo/env
+          MODEL="SM-A528B"
+          REGION="BTU"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
+          mkdir -p "$DEST"
+
+          samloader download -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+
+      - name: Extract and Build ROM
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
           ./scripts/extract_fw.sh --ignore-target
-
-      - name: Save source firmware extraction cache
-        if: steps.cache-source-fw.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: out/fw/SM-S911B_EUX
-          key: source-fw-${{ matrix.target }}-S911BXXSAEYI1
-
-      - name: Restore target firmware extraction cache
-        id: cache-target-fw
-        uses: actions/cache/restore@v4
-        with:
-          path: out/fw/SM-A528B_BTU
-          key: target-fw-${{ matrix.target }}-A528BXXSBGYI3
-
-      - name: Restore target firmware download marker
-        if: steps.cache-target-fw.outputs.cache-hit == 'true'
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          mkdir -p "$ODIN_DIR/SM-A528B_BTU"
-          echo "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" > "$ODIN_DIR/SM-A528B_BTU/.downloaded"
-
-      - name: Download target firmware (SM-A528B / A52s)
-        if: steps.cache-target-fw.outputs.cache-hit != 'true'
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          DEST="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST"
-          THREADS=8
-          for i in 1 2 3 4 5; do
-            rm -rf "$DEST" && mkdir -p "$DEST"
-            samloader download -m "SM-A528B" -r "BTU" \
-              -v "A528BXXSBGYI3" \
-              -d "$DEST" && break
-            echo "Tentativa $i falhou..."
-            [ "$THREADS" -gt 1 ] && THREADS=$(( THREADS / 2 ))
-            sleep 10
-          done
-          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          [ -z "$ZIP" ] && echo "Download falhou" && exit 1
-          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          AP=$(find  "$DEST" -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
-          CSC=$(find "$DEST" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
-          CP=$(find  "$DEST" -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-          echo "Marker: $(cat $DEST/.downloaded)"
-
-      - name: Extract target firmware
-        if: steps.cache-target-fw.outputs.cache-hit != 'true'
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
           ./scripts/extract_fw.sh --ignore-source
+          bash ./scripts/make_rom.sh
 
-      - name: Save target firmware extraction cache
-        if: steps.cache-target-fw.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: out/fw/SM-A528B_BTU
-          key: target-fw-${{ matrix.target }}-A528BXXSBGYI3
-
-      - name: Build ROM
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          ./scripts/make_rom.sh
-
-      - name: Upload to GoFile
+      - name: Upload Results
+        if: always()
         run: |
           ZIP_FILE=$(find out -maxdepth 1 -name "*.zip" | head -1)
-          [ -z "$ZIP_FILE" ] && echo "Nenhum ZIP encontrado" && exit 1
-          SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
-          RESPONSE=$(curl -s -F "file=@${ZIP_FILE}" \
-            -F "token=${{ secrets.GOFILE_TOKEN }}" \
-            -F "folderId=${{ secrets.GOFILE_FOLDER_ID }}" \
-            "https://${SERVER}.gofile.io/contents/uploadfile")
-          echo "Link: $(echo "$RESPONSE" | jq -r '.data.downloadPage')"
-
-      - name: Salvar artefato
+          if [ -n "$ZIP_FILE" ]; then
+             SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+             curl -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile"
+             cp "$ZIP_FILE" ./rom_final.zip
+          fi
+          
+      - name: Upload Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-a52sxq
-          path: out/*.zip
-          retention-days: 7
+          name: ProjectNERV-A52s
+          path: rom_final.zip
