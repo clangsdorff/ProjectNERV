@@ -32,12 +32,12 @@ jobs:
           curl -L "https://github.com/topjohnwu/samloader-rs/releases/download/1.2.0/samloader-linux-x86_64.tar.xz" -o /tmp/samloader.tar.xz
           tar -xf /tmp/samloader.tar.xz -C /tmp/samloader_extract/
           
-          # Move o binário para o local correto (limitando o find ao diretório de extração para evitar erros de permissão )
+          # Move o binário para o local correto
           find /tmp/samloader_extract/ -type f -name "samloader" -exec mv {} $HOME/.local/bin/ \;
           chmod +x $HOME/.local/bin/samloader
           rm -rf /tmp/samloader_extract /tmp/samloader.tar.xz
 
-      - name: Ajustar Configurações (A52s)
+      - name: Ajustar Configurações (A52s )
         run: |
           # Garante que o projeto use o modelo correto
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
@@ -51,7 +51,6 @@ jobs:
           mkdir -p $HOME/custom_bin
           cat << 'EOF' > $HOME/custom_bin/samloader
           #!/bin/bash
-          # Simula a resposta do check-update para evitar timeouts
           if [[ "$*" == *"check-update"* ]] || [[ "$*" == *"checkupdate"* ]]; then
             if [[ "$*" == *"SM-S711B"* ]]; then
               echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
@@ -61,7 +60,6 @@ jobs:
               exit 0
             fi
           fi
-          # Executa o samloader real com retry
           MAX_RETRIES=5
           for i in $(seq 1 $MAX_RETRIES); do
             $HOME/.local/bin/samloader "$@" && exit 0
@@ -75,13 +73,18 @@ jobs:
 
       - name: Build ProjectNERV
         run: |
-          # Bypass da compilação do erofs-utils (usa o do sistema Ubuntu)
+          # Bypass da compilação do erofs-utils
           mkdir -p bin
           ln -sf /usr/bin/mkfs.erofs bin/mkfs.erofs
           ln -sf /usr/bin/extract.erofs bin/extract.erofs
           
+          # Importante: O buildenv.sh deve ser carregado com 'source'
           chmod +x buildenv.sh
-          ./buildenv.sh ${{ matrix.target }}
+          source ./buildenv.sh ${{ matrix.target }}
+          
+          # Inicia o build da ROM
+          chmod +x scripts/make_rom.sh
+          ./scripts/make_rom.sh --force
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
