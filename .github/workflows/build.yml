@@ -22,10 +22,9 @@ jobs:
 
       - name: Ajustar Configurações (S23 Base)
         run: |
-          # Força o S23 (S911B) como doador em todo o projeto para garantir One UI 7
+          # Força o S23 (S911B) como doador para garantir One UI 7 estável
           find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
           find . -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/S911BXXSAEYI1/g' {} +
-          # Garante que o target config aponte para a versão estável
           sed -i 's/SOURCE_FIRMWARE=.*/SOURCE_FIRMWARE="SM-S911B\/EUX\/S911BXXSAEYI1"/' target/a52sxq/config.sh
 
       - name: Remover submodules fantasma
@@ -47,27 +46,25 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs webp pcre2-utils
 
-      - name: Instalar Rust e compilar samloader-rs com patch local
+      - name: Instalar Rust e compilar samloader-rs com patch -p3
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
-
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
           cd /tmp/samloader-rs
           git checkout 1.2.0
           
-          # USA O PATCH QUE JÁ ESTÁ NO SEU REPOSITÓRIO
+          # APLICAÇÃO DO PATCH COM -p3 PARA CORRIGIR CAMINHOS DO DIFF
           if [ -f "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch" ]; then
-            git apply "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
+            patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           else
-            echo "::error::Arquivo de patch não encontrado localmente!"
+            echo "::error::Arquivo de patch não encontrado!"
             exit 1
           fi
 
           cargo build --release
           cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "samloader instalado com sucesso!"
 
       - name: Configurar JDK 21
         uses: actions/setup-java@v4
@@ -77,7 +74,6 @@ jobs:
 
       - name: Bypass build de ferramentas (CHECK_TOOLS false)
         run: |
-          # Pula compilação interna e usa ferramentas do Ubuntu
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
@@ -86,22 +82,18 @@ jobs:
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Criar links de ferramentas e Magiskboot
+      - name: Criar links e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
-          
-          # Magiskboot binário pronto
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          
-          # Linka o samloader compilado para o path esperado
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Download firmware SOURCE (SM-S911B / S23 - One UI 7)
@@ -113,7 +105,6 @@ jobs:
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
           
-          # One UI 7 versions para S23
           for VERSION in "S911BXXSAEYI1" "S911BXXSAEXI1" "S911BXXSAEXF1"; do
              echo "Tentando $VERSION..."
              samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
@@ -123,7 +114,6 @@ jobs:
           [ "$DOWNLOADED" != "true" ] && exit 1
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
@@ -137,13 +127,9 @@ jobs:
           REGION="BTU"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          
-          # Tenta baixar a versão específica do A52s
           samloader download -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
-          
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
