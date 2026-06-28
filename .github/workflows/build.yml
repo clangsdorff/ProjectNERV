@@ -20,7 +20,14 @@ jobs:
         with:
           submodules: false
 
-      - name: Remover submodules fantasma e inicializar o restante
+      - name: Ajustar Configurações (IMEIs de Validação Obrigatória)
+        run: |
+          # Garante que os arquivos tenham IMEIs de 15 dígitos para o extract_fw.sh aceitar
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh || true
+          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh || true
+          [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
+
+      - name: Remover submodules fantasma
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
@@ -44,14 +51,9 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs
-          git checkout 1.2.0
-          
-          # Aplica o patch
+          cd /tmp/samloader-rs && git checkout 1.2.0
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
-          
           cargo build --release
-          mkdir -p $HOME/.cargo/bin
           cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
@@ -61,17 +63,14 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Bypass build de ferramentas (CHECK_TOOLS false)
+      - name: Bypass build de ferramentas
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
-          sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
-          sed -i 's/^IMG2SDAT=true$/IMG2SDAT=false/'           scripts/build_dependencies.sh
-          sed -i 's/^MAGISKBOOT=true$/MAGISKBOOT=false/'       scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Criar links de ferramentas e Magiskboot
+      - name: Criar links e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
@@ -84,7 +83,6 @@ jobs:
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
@@ -92,7 +90,6 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           source ./buildenv.sh ${{ matrix.target }}
-          export SKIP_DEPENDENCY_CHECK=1
           ./scripts/build_dependencies.sh
 
       - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
@@ -100,8 +97,7 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
-          mkdir -p "$DEST"
-          cd "$DEST"
+          mkdir -p "$DEST" && cd "$DEST"
           
           $SAMLOADER download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "."
           
@@ -114,14 +110,14 @@ jobs:
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
+          echo "Marker SOURCE (S23 FE) gerado: $(cat .downloaded)"
 
-      - name: Download firmware TARGET (SM-A528B / A52s)
+      - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST"
-          cd "$DEST"
+          mkdir -p "$DEST" && cd "$DEST"
           
           $SAMLOADER download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "." || $SAMLOADER download -m "SM-A528B" -r "BTU" -d "."
           
@@ -134,11 +130,17 @@ jobs:
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
+          echo "Marker TARGET (A52s) gerado: $(cat .downloaded)"
 
       - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
+          
+          # Override Absoluto de Variáveis para garantir 15 dígitos durante a extração
+          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
+          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
 
@@ -146,6 +148,10 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
+          
+          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
+          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          
           bash ./scripts/make_rom.sh
 
       - name: Upload
