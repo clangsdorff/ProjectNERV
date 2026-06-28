@@ -20,12 +20,13 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações e IMEIs de Validação
+      - name: Ajustar Configurações (S23 FE + IMEIs de 15 dígitos)
         run: |
-          # Garante o modelo correto S23 FE (SM-S711B)
+          # Garante que todo o projeto use o modelo correto S23 FE (SM-S711B)
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
-          # Injeta IMEIs de 15 dígitos nas configs. Isso é OBRIGATÓRIO para o extrator.
+          # Injeta IMEIs de 15 dígitos nas configs. O extrator EXIGE isso para não dar erro de IMEI.
+          # O script usa isso apenas para validar o formato.
           sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
           [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
@@ -58,16 +59,15 @@ jobs:
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           cargo build --release
           cp target/release/samloader $HOME/.cargo/bin/samloader
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Configurar Wrapper do Samloader (O Pulo do Gato)
+      - name: Configurar Wrapper do Samloader (Interceptador One UI 7)
         run: |
-          # Cria um diretório de ferramentas personalizado
+          # Criamos um script que finge ser o samloader.
+          # Quando o NERV perguntar "qual a última versão?", ele responde "One UI 7".
           mkdir -p $HOME/custom_bin
-          
-          # Cria o script interceptador
           cat << 'EOF' > $HOME/custom_bin/samloader
           #!/bin/bash
-          # Se o script perguntar a versão (checkupdate), respondemos a One UI 7 fixa
           if [[ "$*" == *"check-update"* ]] || [[ "$*" == *"checkupdate"* ]]; then
              if [[ "$*" == *"SM-S711B"* ]]; then
                 echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
@@ -77,15 +77,12 @@ jobs:
                 exit 0
              fi
           fi
-          # Para qualquer outro comando (como download), usa o samloader real
           exec $HOME/.cargo/bin/samloader "$@"
           EOF
-          
           chmod +x $HOME/custom_bin/samloader
-          # Adiciona o diretório do wrapper no INÍCIO do PATH
           echo "$HOME/custom_bin" >> $GITHUB_PATH
 
-      - name: Bypass build de ferramentas
+      - name: Bypass build de ferramentas e preparar links
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
@@ -104,7 +101,7 @@ jobs:
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
           
-          # Linka o wrapper também na pasta que o NERV checa
+          # Linka o wrapper para a pasta que o NERV usa internamente
           ln -sf $HOME/custom_bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
@@ -114,33 +111,30 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
+      - name: Download firmware SOURCE (S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          SAM_BIN="$HOME/custom_bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST" && cd "$DEST"
           
-          # Download usando o wrapper
-          samloader download --model "SM-S711B" --region "EUX" --version "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" --out-dir "."
-          
+          # Baixa a versão exata que queremos
+          $SAM_BIN download --model "SM-S711B" --region "EUX" --version "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" --out-dir "."
           unzip -o *.zip && rm -f *.zip
           
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          
-          # Marcador estritamente PDA/CSC/MODEM
+          # O marcador diz ao extrator que a versão é a One UI 7
           echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
       - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          SAM_BIN="$HOME/custom_bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST" && cd "$DEST"
-          
-          samloader download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || \
-          samloader download --model "SM-A528B" --region "BTU" --out-dir "."
-          
+          $SAM_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "."
           unzip -o *.zip && rm -f *.zip
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
@@ -152,7 +146,7 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Força IMEIs de 15 dígitos para passar no validador
+          # Força as variáveis com o IMEI de 15 dígitos no ambiente
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
           
@@ -164,5 +158,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-A52s-OneUI7
+          name: ROM-A52s-OneUI7-S23FEPort
           path: out/*.zip
