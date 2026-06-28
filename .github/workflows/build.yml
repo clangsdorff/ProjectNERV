@@ -24,7 +24,7 @@ jobs:
       - name: Configurar Ambiente
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils
+          sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils cwebp ffmpeg getfattr pcre2-utils protobuf-compiler
           
           # Baixa e extrai o samloader-rs
           mkdir -p $HOME/.local/bin
