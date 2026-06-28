@@ -26,9 +26,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils
           
-          # Baixa o binário pré-compilado do samloader-rs para evitar erro de Rust
+          # Baixa o binário pré-compilado do samloader-rs (versão estável)
           mkdir -p $HOME/.local/bin
-          curl -L https://github.com/luisbocanegra/samloader-rs/releases/latest/download/samloader-x86_64-unknown-linux-gnu.tar.gz | tar xz -C $HOME/.local/bin/
+          # Usando a URL direta do binário para evitar problemas com o tar
+          curl -L "https://github.com/luisbocanegra/samloader-rs/releases/download/v1.2.0/samloader-x86_64-unknown-linux-gnu.tar.gz" -o /tmp/samloader.tar.gz
+          tar -xzf /tmp/samloader.tar.gz -C $HOME/.local/bin/
           chmod +x $HOME/.local/bin/samloader
 
       - name: Ajustar Configurações (A52s)
@@ -70,7 +72,6 @@ jobs:
       - name: Build ProjectNERV
         run: |
           # Bypass da compilação do erofs-utils (usa o do sistema Ubuntu)
-          # Isso evita o erro de diretório inexistente no seu fork
           mkdir -p bin
           ln -sf /usr/bin/mkfs.erofs bin/mkfs.erofs
           ln -sf /usr/bin/extract.erofs bin/extract.erofs
