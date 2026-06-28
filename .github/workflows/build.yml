@@ -20,15 +20,12 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações (IMEIs e S23 FE)
+      - name: Ajustar Configurações (S23 FE Version)
         run: |
-          # Garante o modelo S23 FE
+          # Garante o modelo S23 FE e as versões reais nas configs
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
-          
-          # Injeta IMEIs de 15 dígitos para passar na validação de string do extrator
-          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
-          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
-          [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
+          find . -name "*.sh" -exec sed -i 's/352404911234563/S711BXXSAEYI1/g' {} +
+          find . -name "*.sh" -exec sed -i 's/352599501234566/A528BXXSBGYI3/g' {} +
 
       - name: Remover submodules fantasma
         run: |
@@ -58,11 +55,10 @@ jobs:
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           cargo build --release
           cp target/release/samloader $HOME/.cargo/bin/samloader
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Bypass build de ferramentas
         run: |
-          # Evita que o build tente compilar ferramentas que já estão no sistema
+          # Usa as ferramentas que já temos no sistema
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
@@ -74,7 +70,6 @@ jobs:
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # Magiskboot binário pronto
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
@@ -89,36 +84,37 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
+      - name: Download firmware SOURCE (S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          SAMLOADER="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST"
           cd "$DEST"
           
-          # Download dentro da pasta de destino para não perder arquivos
-          samloader download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "."
+          # Download com string completa
+          $SAMLOADER download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "."
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          # Identifica os arquivos para o marcador .downloaded
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           
-          # Escreve o marcador que o extract_fw.sh usa para validar a extração
+          # Marker no formato AP/CSC/CP/BL
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
       - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          SAMLOADER="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST"
           cd "$DEST"
           
-          samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "." || samloader download -m "SM-A528B" -r "BTU" -d "."
+          $SAMLOADER download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "." || $SAMLOADER download -m "SM-A528B" -r "BTU" -d "."
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
@@ -133,9 +129,9 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          # Garante que as variáveis de ambiente batem com os IMEIs de validação
-          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
-          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          # Passa as versões reais para o ambiente
+          export SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"
+          export TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
           
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
@@ -145,5 +141,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-ProjectNERV-A52s
+          name: ProjectNERV-A52s-OneUI7
           path: out/*.zip
