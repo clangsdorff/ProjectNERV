@@ -49,7 +49,7 @@ jobs:
             curl xxd patchelf flex bison lz4 libarchive-tools \
             build-essential python3 python3-pip python3-venv \
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
-            e2fsprogs
+            e2fsprogs webp pcre2-utils
 
       - name: Instalar Rust e compilar samloader-rs com patch
         run: |
@@ -60,7 +60,6 @@ jobs:
           cd /tmp/samloader-rs
           git checkout 1.2.0
 
-          # Tenta aplicar com 'patch -p1' (original do autor). Se falhar, usa fallbacks
           patch -p1 < "$GITHUB_WORKSPACE/patches/samloader-rs/0001-version-select.patch" || {
             echo "::warning::patch -p1 falhou, tentando git apply"
             git apply "$GITHUB_WORKSPACE/patches/samloader-rs/0001-version-select.patch" || {
@@ -98,17 +97,14 @@ jobs:
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # magiskboot — baixar do Magisk APK
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
 
-          # samloader link
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
-          # signapk — stubs
           touch out/tools/bin/signapk.jar
           printf '#!/bin/sh\ntrue\n' > out/tools/bin/signapk
           chmod +x out/tools/bin/signapk
@@ -120,42 +116,46 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (SM-S711B / S23 FE)
+      - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           source $HOME/.cargo/env
           MODEL="SM-S711B"
-          DEST="$ODIN_DIR/${MODEL}_EUX"
+          REGION="EUX"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
 
-          for ATTEMPT in "EUX:S711BXXSAEYI1" "EUX:latest" "DBT:latest" "INS:latest"; do
-            REGION="${ATTEMPT%%:*}"
-            VERSION="${ATTEMPT##*:}"
-            echo "Tentando $MODEL / $REGION / $VERSION..."
-            
-            if [ "$VERSION" = "latest" ]; then
-              samloader download -m "$MODEL" -r "$REGION" -d "$DEST" && break || true
-            else
-              samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" && break || true
-            fi
-            sleep 10
+          DOWNLOADED=false
+          # One UI 7 versions para S23 FE (do mais recente para o mais antigo)
+          for VERSION in "S711BXXSAEYI1" "S711BXXSAEXB1" "S711BXXSAEXI1" "S711BXXSAEXF1"; do
+            echo "Tentando $MODEL/$REGION/$VERSION..."
+            samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
+              && DOWNLOADED=true && break || true
+            sleep 5
           done
+
+          if [ "${DOWNLOADED}" != "true" ]; then
+            echo "::error::Nenhuma versão One UI 7 disponível para $MODEL/$REGION"
+            exit 1
+          fi
 
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
 
-          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
+          AP=$(find  "$DEST" -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          CSC=$(find "$DEST" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
+          CP=$(find  "$DEST" -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
           echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+          echo "Marker: $(cat $DEST/.downloaded)"
 
       - name: Download firmware TARGET (SM-A528B / A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           source $HOME/.cargo/env
           MODEL="SM-A528B"
-          DEST="$ODIN_DIR/${MODEL}_BTU"
+          REGION="BTU"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
 
           for ATTEMPT in "BTU:A528BXXSBGYI3" "BTU:latest" "DBT:latest"; do
@@ -168,7 +168,7 @@ jobs:
             else
               samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" && break || true
             fi
-            sleep 10
+            sleep 5
           done
 
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
