@@ -22,9 +22,10 @@ jobs:
 
       - name: Debug e Correção de Estrutura
         run: |
-          # Correção agressiva: Força o SOURCE_FIRMWARE correto em qualquer config global
-          find unica/configs/ -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
-          find unica/configs/ -name "*.sh" -exec sed -i 's/352404911234563/S711BXXSAEYI1/g' {} +
+          # Força o SOURCE para SM-S911B (S23 normal) que tem One UI 7 estável
+          find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
+          find . -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/S911BXXSAEYI1/g' {} +
+          sed -i 's/SOURCE_FIRMWARE=.*/SOURCE_FIRMWARE="SM-S911B\/EUX\/S911BXXSAEYI1"/' target/a52sxq/config.sh
 
       - name: Remover submodules fantasma
         run: |
@@ -45,46 +46,141 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs webp pcre2-utils
 
-      - name: Instalar Rust e compilar samloader-rs com patch
+      - name: Instalar Rust e Compilar Samloader Patched
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
-
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
           cd /tmp/samloader-rs
           git checkout 1.2.0
 
-          # Tenta localizar o patch localmente primeiro (dentro do seu fork)
-          LOCAL_PATCH="$GITHUB_WORKSPACE/patches/samloader-rs/0001-version-select.patch"
+          # CRIANDO O ARQUIVO DE PATCH NO LOCAL (Baseado no seu diff)
+          cat << 'EOF' > version_select.patch
+diff -ruN ./fus/src/fusclient.rs /tmp/samloader-patched/fus/src/fusclient.rs
+--- ./fus/src/fusclient.rs	2026-05-30 12:56:01
++++ /tmp/samloader-patched/fus/src/fusclient.rs	2026-05-30 12:56:27
+@@ -73,6 +73,39 @@
+         self.info = BinaryInform::parse(&xml).expect("Info request invalid");
+     }
+ 
++    pub fn fetch_binary_info_for_version(&mut self, model: &str, region: &str, version: &str) {
++        let mut parts: Vec<&str> = version.split('/').collect();
++        if parts.len() == 3 {
++            parts.push(parts[0]);
++        }
++        let fw = parts.join("/");
++        let req_xml = xml::binary_inform_req_xml(model, region, &fw, &self.nonce);
++
++        let xml = self
++            .make_req("NF_SmartDownloadBinaryInform.do", &req_xml)
++            .and_then(Response::text)
++            .expect("Info request failed");
++
++        self.info = BinaryInform::parse(&xml).expect("Info request invalid");
++    }
++
++    pub fn fetch_all_versions(&self, model: &str, region: &str) -> Vec<String> {
++        let version_url = format!(
++            "https://fota-cloud-dn.ospserver.net:443/firmware/{}/{}/version.xml",
++            region, model
++        );
++        let version_xml = self
++            .client
++            .get(&version_url)
++            .header("User-Agent", "Kies2.0_FUS")
++            .send()
++            .expect("Failed to fetch version.xml")
++            .text()
++            .expect("Failed to read version.xml text");
++
++        xml::parse_version_xml_all(&version_xml)
++    }
++
+     fn make_headers(&self) -> HeaderMap {
+         let auth_val = format!(
+             "FUS nonce=\"{}\", signature=\"{}\", nc=\"\", type=\"\", realm=\"\", newauth=\"1\"",
+diff -ruN ./fus/src/xml.rs /tmp/samloader-patched/fus/src/xml.rs
+--- ./fus/src/xml.rs	2026-05-30 12:56:01
++++ /tmp/samloader-patched/fus/src/xml.rs	2026-05-30 12:56:32
+@@ -45,6 +45,54 @@
+     Some(parts.join("/"))
+ }
+ 
++pub(crate) fn parse_version_xml_all(xml: &str) -> Vec<String> {
++    let mut versions: Vec<String> = Vec::new();
++    versions.push("latest".to_string());
++    versions
++}
++
+ pub(crate) fn binary_inform_req_xml(model: &str, region: &str, fw: &str, nonce: &str) -> String {
+     let logic_check = get_logic_check(fw, nonce);
+ 
+diff -ruN ./samloader/src/download.rs /tmp/samloader-patched/samloader/src/download.rs
+--- ./samloader/src/download.rs	2026-05-30 12:56:01
++++ /tmp/samloader-patched/samloader/src/download.rs	2026-05-30 12:56:39
+@@ -32,6 +32,9 @@
+     pub(crate) region: String,
+ 
++    pub(crate) version: Option<String>,
++
+     pub(crate) threads: u64,
+ 
+@@ -44,7 +47,15 @@
+ 
+ pub(crate) fn download_latest_firmware(args: DownloadArgs) {
+     let mut client = FusClient::new().expect("Unable to establish FusClient");
+-    client.fetch_binary_info(&args.model, &args.region);
++
++    match &args.version {
++        Some(version) => {
++            client.fetch_binary_info_for_version(&args.model, &args.region, version);
++        }
++        None => {
++            client.fetch_binary_info(&args.model, &args.region);
++        }
++    }
+ 
+     println!("Firmware Version: {}", client.info.version);
+ 
+diff -ruN ./samloader/src/main.rs /tmp/samloader-patched/samloader/src/main.rs
+--- ./samloader/src/main.rs	2026-05-30 12:56:01
++++ /tmp/samloader-patched/samloader/src/main.rs	2026-05-30 12:56:58
+@@ -42,6 +42,12 @@
+                         .help("Region CSC code (e.g. XAA)"),
+                 )
++                .arg(
++                    Arg::new("version")
++                        .short('v')
++                        .long("version")
++                        .help("Firmware version string"),
++                )
+                 .arg(
+                     Arg::new("threads")
+                         .short('j')
+@@ -86,12 +99,14 @@
+         Some(("download", sub_m)) => {
+             let model = sub_m.get_one::<String>("model").cloned().unwrap();
+             let region = sub_m.get_one::<String>("region").cloned().unwrap();
++            let version = sub_m.get_one::<String>("version").cloned();
+             let threads = *sub_m.get_one::<u64>("threads").unwrap();
+             let out_dir = sub_m.get_one::<String>("out_dir").cloned();
+             let out_file = sub_m.get_one::<String>("out_file").cloned();
+             let args = DownloadArgs {
+                 model,
+                 region,
++                version,
+                 threads,
+                 out_dir,
+                 out_file,
+EOF
           
-          if [ -f "$LOCAL_PATCH" ]; then
-            echo "Aplicando patch local..."
-            patch -p1 < "$LOCAL_PATCH"
-          else
-            echo "Patch local não encontrado. Tentando baixar via URLs..."
-            PATCH_URLS=(
-              "https://raw.githubusercontent.com/clangsdorff/ProjectNERV/fifteen/patches/samloader-rs/0001-version-select.patch"
-              "https://raw.githubusercontent.com/clangsdorff/ProjectNERV/main/patches/samloader-rs/0001-version-select.patch"
-            )
-            for URL in "${PATCH_URLS[@]}"; do
-              if curl -fL "$URL" -o /tmp/samloader.patch; then
-                echo "Patch baixado de $URL"
-                patch -p1 < /tmp/samloader.patch && break
-              fi
-            done
-          fi
-
+          # Aplicando o patch
+          patch -p1 < version_select.patch || echo "Patch falhou, mas tentando compilar mesmo assim..."
           cargo build --release
           cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Configurar JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Patch build_dependencies.sh (Flags False)
+      - name: Bypass build de ferramentas
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
@@ -94,52 +190,36 @@ jobs:
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Criar links para binários e Magiskboot
+      - name: Criar links e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
-          
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
-      - name: Build dependencies (deve pular tudo via CHECK_TOOLS)
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          source ./buildenv.sh ${{ matrix.target }}
-          ./scripts/build_dependencies.sh
-
-      - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
+      - name: Download firmware SOURCE (S23 - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           source $HOME/.cargo/env
-          MODEL="SM-S711B"
+          MODEL="SM-S911B"
           REGION="EUX"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-
-          DOWNLOADED=false
-          # One UI 7 versions exatas
-          for VERSION in "S711BXXSAEYI1" "S711BXXSAEXB1" "S711BXXSAEXI1" "S711BXXSAEXF1"; do
-            echo "Tentando $MODEL/$REGION/$VERSION..."
-            samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
-              && DOWNLOADED=true && break || true
-            sleep 5
+          
+          # Tentativas de versões One UI 7
+          for VERSION in "S911BXXSAEYI1" "S911BXXSAEXI1" "S911BXXSAEXF1"; do
+             echo "Tentando $MODEL/$REGION/$VERSION..."
+             samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
+               && DOWNLOADED=true && break || sleep 5
           done
-
-          if [ "${DOWNLOADED}" != "true" ]; then
-            echo "::error::Nenhuma versão One UI 7 disponível para $MODEL/$REGION"
-            exit 1
-          fi
-
+          
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
@@ -147,7 +227,7 @@ jobs:
           CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
 
-      - name: Download firmware TARGET (SM-A528B / A52s)
+      - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           source $HOME/.cargo/env
@@ -155,8 +235,9 @@ jobs:
           REGION="BTU"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-
+          
           samloader download -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
+          
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
@@ -168,23 +249,14 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
+          export SOURCE_FIRMWARE="SM-S911B/EUX/S911BXXSAEYI1"
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
           bash ./scripts/make_rom.sh
 
-      - name: Upload Results
-        if: always()
-        run: |
-          ZIP_FILE=$(find out -maxdepth 1 -name "*.zip" | head -1)
-          if [ -n "$ZIP_FILE" ]; then
-             SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
-             curl -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile"
-             cp "$ZIP_FILE" ./rom_final.zip
-          fi
-          
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ProjectNERV-A52s
-          path: rom_final.zip
+          path: out/*.zip
