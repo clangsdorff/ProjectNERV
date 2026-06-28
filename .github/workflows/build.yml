@@ -7,49 +7,22 @@ on:
       - 'fifteen'
 
 jobs:
-  build:
+  warmup-cache:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [a52sxq]
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           submodules: false
 
-      - name: Debug e Correção de Estrutura
+      - name: Set up environment
         run: |
-          find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
-          # Remove submodules que causam falha no clone
-          git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
-          git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
-          git rm --cached -f external/samloader 2>/dev/null || true
-          git submodule update --init
+          sudo apt update
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler pcre2-utils android-sdk-libsparse-utils
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Instalar dependências do sistema
-        run: |
-          sudo apt-get update
-          sudo apt-get install -yq \
-            p7zip-full jq attr ccache clang ffmpeg golang \
-            libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev \
-            libpcre2-dev libzstd-dev lld protobuf-compiler \
-            curl xxd patchelf flex bison lz4 libarchive-tools \
-            build-essential python3 python3-pip python3-venv \
-            device-tree-compiler android-sdk-libsparse-utils adb fastboot \
-            e2fsprogs webp pcre2-utils
-
-      - name: Cache samloader-rs binary
-        id: cache-samloader
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/bin/samloader
-          key: samloader-v1.2.0-patched
-
-      - name: Instalar Rust e compilar samloader-rs (se necessário)
-        if: steps.cache-samloader.outputs.cache-hit != 'true'
+      - name: Build samloader-rs (Patch Local)
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
@@ -59,68 +32,83 @@ jobs:
           cargo build --release
           sudo cp target/release/samloader /usr/local/bin/samloader
 
-      - name: Bypass build de ferramentas
-        run: |
-          sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
-          sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
-          sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
-          sed -i 's/^IMG2SDAT=true$/IMG2SDAT=false/'           scripts/build_dependencies.sh
-          sed -i 's/^MAGISKBOOT=true$/MAGISKBOOT=false/'       scripts/build_dependencies.sh
-          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
-          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
+      - name: Cache samloader-rs binary
+        uses: actions/cache/save@v4
+        with:
+          path: /usr/local/bin/samloader
+          key: samloader-v1.2.0-noandroid-v2
 
-      - name: Criar links e Magiskboot
+  build:
+    runs-on: ubuntu-24.04
+    needs: warmup-cache
+    strategy:
+      matrix:
+        target: [a52sxq]
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Restore samloader-rs
+        uses: actions/cache/restore@v4
+        with:
+          path: /usr/local/bin/samloader
+          key: samloader-v1.2.0-noandroid-v2
+
+      - name: Instalar dependências do sistema
         run: |
+          sudo apt update
+          sudo apt install -yq webp pcre2-utils android-sdk-libsparse-utils adb fastboot e2fsprogs
+
+      - name: Configurar identidades e links de ferramentas
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
           mkdir -p out/tools/bin out/tools/venv/bin
+          # Linkar ferramentas do sistema para a pasta do NERV
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
+          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
+          
+          # Magiskboot pré-compilado
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
 
-      - name: Restore source firmware extraction cache
-        id: cache-source-fw
-        uses: actions/cache/restore@v4
-        with:
-          path: out/fw/SM-S911B_EUX
-          key: source-fw-${{ matrix.target }}-latest
-          restore-keys: |
-            source-fw-${{ matrix.target }}-
+      - name: Patch build_dependencies.sh (Forçar Skip)
+        run: |
+          # Desabilita as flags no script para pular compilações problemáticas
+          sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
+          sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
+          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'             scripts/build_dependencies.sh
+          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'         scripts/build_dependencies.sh
+          echo "=== Verificando Flags (Devem estar false) ==="
+          grep -E "^(ANDROID_TOOLS|APKTOOL|SIGNAPK|SAMLOADER)=" scripts/build_dependencies.sh
 
-      - name: Download source firmware (SM-S911B - latest disponível)
-        if: steps.cache-source-fw.outputs.cache-hit != 'true'
+      - name: Build dependencies
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          ./scripts/build_dependencies.sh
+
+      - name: Download firmware SOURCE (SM-S911B - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           DEST="$ODIN_DIR/SM-S911B_EUX"
           mkdir -p "$DEST"
-          echo "Baixando firmware do S23 (Donor)..."
-          for i in 1 2 3 4 5; do
-            samloader download -m "SM-S911B" -r "EUX" -d "$DEST" && break
-            sleep 10
-          done
+          # S911B (S23) latest firmware
+          samloader download -m "SM-S911B" -r "EUX" -d "$DEST"
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-          # Extrai versão para o Cache
-          VER=$(echo "$AP" | cut -d'_' -f2)
-          echo "SOURCE_VERSION=$VER" >> $GITHUB_ENV
 
-      - name: Save source firmware extraction cache
-        if: steps.cache-source-fw.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: out/fw/SM-S911B_EUX
-          key: source-fw-${{ matrix.target }}-${{ env.SOURCE_VERSION }}
-
-      - name: Download target firmware (A52s)
+      - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           DEST="$ODIN_DIR/SM-A528B_BTU"
@@ -137,6 +125,7 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
+          export SOURCE_FIRMWARE="SM-S911B/EUX/latest"
           ./scripts/extract_fw.sh
           bash ./scripts/make_rom.sh
 
@@ -144,5 +133,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s-S23Base
+          name: ProjectNERV-A52s-OneUI7
           path: out/*.zip
