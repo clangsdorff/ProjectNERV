@@ -7,22 +7,47 @@ on:
       - 'fifteen'
 
 jobs:
-  warmup-cache:
+  build:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [a52sxq]
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           submodules: false
 
-      - name: Set up environment
+      - name: Remover submodules fantasma e corrigir erofs-utils
         run: |
-          sudo apt update
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler pcre2-utils android-sdk-libsparse-utils
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
+          git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
+          git rm --cached -f external/samloader 2>/dev/null || true
+          
+          # Inicializa submódulos básicos
+          git submodule update --init external/erofs-utils external/apktool external/img2sdat external/signapk
+          
+          # CORREÇÃO CRÍTICA: Inicializa sub-submódulos do erofs-utils recursivamente
+          cd external/erofs-utils
+          git submodule update --init --recursive
+          ls build/cmake/ 2>/dev/null || echo "build/cmake ainda não existe!"
+          cd ../..
 
-      - name: Build samloader-rs (Patch Local)
+      - name: Instalar dependências do sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -yq \
+            p7zip-full jq attr ccache clang ffmpeg golang \
+            libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev \
+            libpcre2-dev libzstd-dev lld protobuf-compiler \
+            curl xxd patchelf flex bison lz4 libarchive-tools \
+            build-essential python3 python3-pip python3-venv \
+            device-tree-compiler android-sdk-libsparse-utils adb fastboot \
+            e2fsprogs webp pcre2-utils
+
+      - name: Instalar Rust e compilar samloader-rs
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
@@ -31,66 +56,35 @@ jobs:
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           cargo build --release
           sudo cp target/release/samloader /usr/local/bin/samloader
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Cache samloader-rs binary
-        uses: actions/cache/save@v4
-        with:
-          path: /usr/local/bin/samloader
-          key: samloader-v1.2.0-noandroid-v2
-
-  build:
-    runs-on: ubuntu-24.04
-    needs: warmup-cache
-    strategy:
-      matrix:
-        target: [a52sxq]
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Restore samloader-rs
-        uses: actions/cache/restore@v4
-        with:
-          path: /usr/local/bin/samloader
-          key: samloader-v1.2.0-noandroid-v2
-
-      - name: Instalar dependências do sistema
+      - name: Criar links e Magiskboot
         run: |
-          sudo apt update
-          sudo apt install -yq webp pcre2-utils android-sdk-libsparse-utils adb fastboot e2fsprogs
-
-      - name: Configurar identidades e links de ferramentas
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
           mkdir -p out/tools/bin out/tools/venv/bin
-          # Linkar ferramentas do sistema para a pasta do NERV
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
-          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
           
-          # Magiskboot pré-compilado
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
+          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
 
-      - name: Patch build_dependencies.sh (Forçar Skip)
+      - name: Patch build_dependencies.sh (Skip Tools)
         run: |
-          # Desabilita as flags no script para pular compilações problemáticas
+          # Pula ferramentas que já temos ou dão erro, mas DEIXA EROFS_UTILS buildar
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
-          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'             scripts/build_dependencies.sh
-          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'         scripts/build_dependencies.sh
-          echo "=== Verificando Flags (Devem estar false) ==="
-          grep -E "^(ANDROID_TOOLS|APKTOOL|SIGNAPK|SAMLOADER)=" scripts/build_dependencies.sh
+          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
+          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
       - name: Build dependencies
         run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
@@ -99,7 +93,6 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           DEST="$ODIN_DIR/SM-S911B_EUX"
           mkdir -p "$DEST"
-          # S911B (S23) latest firmware
           samloader download -m "SM-S911B" -r "EUX" -d "$DEST"
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
@@ -133,5 +126,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s-OneUI7
+          name: ProjectNERV-A52s
           path: out/*.zip
