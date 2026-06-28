@@ -22,16 +22,15 @@ jobs:
 
       - name: Ajustar Configurações e IMEIs de Validação
         run: |
-          # Garante que todo o projeto use o modelo correto S23 FE (SM-S711B)
+          # Garante o modelo correto S23 FE (SM-S711B)
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
-          # Injeta IMEIs de 15 dígitos nas configs. Isso é OBRIGATÓRIO para o extract_fw.sh passar.
-          # O script usa isso apenas para validar o formato da string.
+          # Injeta IMEIs de 15 dígitos reais. Isso é OBRIGATÓRIO para o extract_fw.sh passar no validador.
           sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
           [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
 
-      - name: Remover submodules fantasma e inicializar o restante
+      - name: Remover submodules fantasma
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
@@ -63,7 +62,7 @@ jobs:
 
       - name: Bypass build de ferramentas e preparar links
         run: |
-          # Desabilita build de ferramentas que já temos no Ubuntu ou no workflow
+          # Desabilita build de ferramentas que já temos
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
@@ -97,21 +96,17 @@ jobs:
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST" && cd "$DEST"
           
-          # Sintaxe Rust correta com flags --model e --region
           VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
           $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          # Identifica os nomes reais dos arquivos tar.md5
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
+          # O marcador deve ter apenas 3 partes (AP/CSC/CP). O BL é achado pelo find automático.
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          
-          # O marcador deve ser AP/CSC/CP/BL para o extrator aceitar
-          echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
+          echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
       - name: Download firmware TARGET (A52s)
         run: |
@@ -125,19 +120,17 @@ jobs:
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
-          
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
+          echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
       - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Força as variáveis de IMEI para o extrator não dar erro de validação
+          # Força os IMEIs de 15 dígitos no ambiente do extrator
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
           
@@ -149,15 +142,14 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Mantém os IMEIs ativos no ambiente para o build final
+          # Mantém os IMEIs ativos para o build final da imagem
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
-          
           bash ./scripts/make_rom.sh
 
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s-OneUI7
+          name: ROM-A52s-OneUI7
           path: out/*.zip
