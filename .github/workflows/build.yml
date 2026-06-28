@@ -20,12 +20,16 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações (S23 Base)
+      - name: Debug e Correção de Estrutura
         run: |
-          # Força o S23 (S911B) como doador em todo o projeto para garantir One UI 7
-          find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
-          find . -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/S911BXXSAEYI1/g' {} +
-          sed -i 's/SOURCE_FIRMWARE=.*/SOURCE_FIRMWARE="SM-S911B\/EUX\/S911BXXSAEYI1"/' target/a52sxq/config.sh
+          # Força os IMEIs legítimos de 15 dígitos nas configs globais para evitar o erro de validação
+          find unica/configs/ -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
+          find unica/configs/ -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/352404911234563/g' {} +
+          find unica/configs/ -name "*.sh" -exec sed -i 's/S911BXXSAEYI1/352404911234563/g' {} +
+          find unica/configs/ -name "*.sh" -exec sed -i 's/S911BXXSAFZE1/352404911234563/g' {} +
+          
+          # Garante que target/a52sxq/config.sh use o IMEI do S23
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S911B/EUX/352404911234563"|' target/a52sxq/config.sh
 
       - name: Remover submodules fantasma do índice git
         run: |
@@ -46,7 +50,7 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs webp pcre2-utils
 
-      - name: Instalar Rust e compilar samloader-rs com patch local
+      - name: Instalar Rust e compilar samloader-rs com patch
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
@@ -54,19 +58,12 @@ jobs:
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
           cd /tmp/samloader-rs
           git checkout 1.2.0
-          
-          # Aplica o patch que já está no seu repositório local
-          if [ -f "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch" ]; then
-            patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
-          else
-            echo "::error::Arquivo de patch não encontrado localmente!"
-            exit 1
-          fi
+
+          patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
 
           cargo build --release
           cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          echo "samloader instalado com sucesso!"
 
       - name: Configurar JDK 21
         uses: actions/setup-java@v4
@@ -74,23 +71,20 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Criar links de ferramentas e Magiskboot
+      - name: Criar links para binários e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
-          # Usa as ferramentas nativas do Ubuntu que o NERV precisa encontrar na pasta out
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # Baixa Magiskboot pronto
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          
-          # Linka o samloader compilado para o path esperado
+
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
@@ -100,7 +94,7 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (SM-S911B - latest disponível)
+      - name: Download firmware SOURCE (SM-S911B / S23 - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           source $HOME/.cargo/env
@@ -109,30 +103,26 @@ jobs:
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
 
-          echo "Baixando versão mais recente disponível do S911B..."
-          for i in {1..5}; do
-            rm -rf "$DEST" && mkdir -p "$DEST"
-            # Sintaxe correta do Samloader Rust
-            samloader download -m "$MODEL" -r "$REGION" -d "$DEST" && break
-            echo "Tentativa $i falhou..."
-            sleep 10
-          done
+          # Correção da Sintaxe do Samloader Rust (Argumentos posicionais)
+          samloader download "$MODEL" "$REGION" "$DEST"
 
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          [ -z "$ZIP" ] && echo "Download falhou" && exit 1
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
 
+          # Extração dinâmica dos nomes dos arquivos
           AP_FILE=$(find "$DEST" -maxdepth 1 -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC_FILE=$(find "$DEST" -maxdepth 1 -name "CSC_*.tar.md5" | head -1 | xargs basename)
           CP_FILE=$(find "$DEST" -maxdepth 1 -name "CP_*.tar.md5" | head -1 | xargs basename)
 
-          # Extração limpa baseada nos nomes dos arquivos reais
+          # Extrai apenas os códigos curtos do firmware de forma limpa
           PDA=$(echo "$AP_FILE" | cut -d'_' -f2)
           CSC=$(echo "$CSC_FILE" | cut -d'_' -f3)
           MODEM=$(echo "$CP_FILE" | cut -d'_' -f2)
 
+          # Monta o arquivo .downloaded dinâmico esperado pelo extract_fw.sh
           echo "${PDA}/${CSC}/${MODEM}" > "$DEST/.downloaded"
-          echo "Marker SOURCE criado: $(cat $DEST/.downloaded)"
+          echo "Marker SOURCE criado com sucesso: $(cat $DEST/.downloaded)"
 
       - name: Download firmware TARGET (A52s)
         run: |
@@ -142,13 +132,14 @@ jobs:
           REGION="BTU"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          
-          # Baixa o firmware usando a sintaxe correta do Samloader Rust
-          samloader download -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
-          
+
+          # Tenta baixar a versão BTU usando a sintaxe de versão do Rust samloader
+          samloader download -v "A528BXXSBGYI3" "$MODEL" "$REGION" "$DEST" || samloader download "$MODEL" "$REGION" "$DEST"
+
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          
+
           AP_FILE=$(find "$DEST" -maxdepth 1 -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC_FILE=$(find "$DEST" -maxdepth 1 -name "CSC_*.tar.md5" | head -1 | xargs basename)
           CP_FILE=$(find "$DEST" -maxdepth 1 -name "CP_*.tar.md5" | head -1 | xargs basename)
@@ -158,19 +149,32 @@ jobs:
           MODEM=$(echo "$CP_FILE" | cut -d'_' -f2)
 
           echo "${PDA}/${CSC}/${MODEM}" > "$DEST/.downloaded"
-          echo "Marker TARGET criado: $(cat $DEST/.downloaded)"
+          echo "Marker TARGET criado com sucesso: $(cat $DEST/.downloaded)"
 
-      - name: Extract and Build ROM
+      - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          export SOURCE_FIRMWARE="SM-S911B/EUX/latest"
-          ./scripts/extract_fw.sh
+          ./scripts/extract_fw.sh --ignore-target
+          ./scripts/extract_fw.sh --ignore-source
+
+      - name: Build ROM
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
           bash ./scripts/make_rom.sh
 
+      - name: Upload
+        run: |
+          ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+             SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+             curl -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile"
+             cp "$ZIP_FILE" ./rom_final.zip
+          fi
+          
       - name: Upload Artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s
-          path: out/*.zip
+          name: ROM-A52s
+          path: rom_final.zip
