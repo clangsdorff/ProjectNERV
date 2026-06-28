@@ -20,19 +20,16 @@ jobs:
         with:
           submodules: false
 
-      - name: Remover submodules fantasma e corrigir erofs-utils
+      - name: Remover submodules fantasma e configurar submodules reais
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
           git rm --cached -f external/samloader 2>/dev/null || true
-          
-          # Inicializa submódulos básicos
           git submodule update --init external/erofs-utils external/apktool external/img2sdat external/signapk
           
-          # CORREÇÃO CRÍTICA: Inicializa sub-submódulos do erofs-utils recursivamente
+          # Correção Claude: Inicializar sub-submodules do erofs-utils
           cd external/erofs-utils
           git submodule update --init --recursive
-          ls build/cmake/ 2>/dev/null || echo "build/cmake ainda não existe!"
           cd ../..
 
       - name: Instalar dependências do sistema
@@ -47,7 +44,7 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs webp pcre2-utils
 
-      - name: Instalar Rust e compilar samloader-rs
+      - name: Instalar Rust e compilar samloader-rs (v1.2.0 + Patch)
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
@@ -58,7 +55,13 @@ jobs:
           sudo cp target/release/samloader /usr/local/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Criar links e Magiskboot
+      - name: Restore cache (Key v3)
+        uses: actions/cache/restore@v4
+        with:
+          path: out/tools
+          key: tools-${{ runner.os }}-noandroid-v3
+
+      - name: Criar links de ferramentas e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
@@ -66,6 +69,7 @@ jobs:
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
+          # Magiskboot pré-compilado
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
@@ -73,58 +77,19 @@ jobs:
           chmod +x out/tools/bin/magiskboot
           ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
 
-      - name: Patch build_dependencies.sh (Skip Tools)
+      - name: Patch build_dependencies.sh (Flags False)
         run: |
-          # Pula ferramentas que já temos ou dão erro, mas DEIXA EROFS_UTILS buildar
+          # Patch cirúrgico antes do build para pular ferramentas quebradas
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
+          echo "=== Flags configuradas ==="
+          grep -E "^(ANDROID_TOOLS|APKTOOL|SIGNAPK|SAMLOADER)=" scripts/build_dependencies.sh
 
       - name: Build dependencies
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           source ./buildenv.sh ${{ matrix.target }}
-          ./scripts/build_dependencies.sh
-
-      - name: Download firmware SOURCE (SM-S911B - One UI 7)
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          DEST="$ODIN_DIR/SM-S911B_EUX"
-          mkdir -p "$DEST"
-          samloader download -m "SM-S911B" -r "EUX" -d "$DEST"
-          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-
-      - name: Download firmware TARGET (A52s)
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          DEST="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST"
-          samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "SM-A528B" -r "BTU" -d "$DEST"
-          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-
-      - name: Extract and Build ROM
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          export SKIP_DEPENDENCY_CHECK=1
-          export SOURCE_FIRMWARE="SM-S911B/EUX/latest"
-          ./scripts/extract_fw.sh
-          bash ./scripts/make_rom.sh
-
-      - name: Upload Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ProjectNERV-A52s
-          path: out/*.zip
+          ./scripts/build_dependencies
