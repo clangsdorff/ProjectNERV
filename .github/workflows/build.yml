@@ -20,13 +20,13 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações com IMEIs válidos
+      - name: Ajustar Configurações (S23 FE e IMEIs)
         run: |
-          # Troca referências do S711B para o S23 normal (S911B) para garantir One UI 7
-          find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
+          # Reverte qualquer alteração anterior para garantir o S23 FE (SM-S711B)
+          find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
-          # Injeta os IMEIs originais (15 dígitos) nas configurações para PASSAR na validação do extract_fw.sh
-          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S911B/EUX/352404911234563"|' target/a52sxq/config.sh
+          # Injeta os IMEIs de 15 dígitos para passar no validador do extract_fw.sh
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
 
       - name: Remover submodules fantasma e inicializar o restante
@@ -56,7 +56,7 @@ jobs:
           cd /tmp/samloader-rs
           git checkout 1.2.0
           
-          # Aplica o seu patch local
+          # Aplica o patch
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           
           cargo build --release
@@ -68,9 +68,8 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Bypass build de ferramentas (CHECK_TOOLS false)
+      - name: Bypass build de ferramentas
         run: |
-          # Desabilita o build interno de ferramentas problemáticas
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
@@ -79,16 +78,14 @@ jobs:
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Criar links de ferramentas e Magiskboot
+      - name: Criar links de ferramentas nativas
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
-          # Usa ferramentas nativas do Linux no lugar do Android Tools compilado
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # Baixa o Magiskboot binário
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
@@ -104,19 +101,19 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (SM-S911B / S23 - One UI 7)
+      - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER="$HOME/.cargo/bin/samloader"
-          DEST="$ODIN_DIR/SM-S911B_EUX"
+          DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST"
           cd "$DEST"
           
           DOWNLOADED=false
-          # Usa as strings completas que a Samsung exige para liberar o arquivo
-          for VERSION in "S911BXXSAEYI1/S911BOXMAEYI1/S911BXXSAEYI1" "S911BXXSAEXI1/S911BOXMAEXI1/S911BXXSAEXI1" "S911BXXSAEXF1/S911BOXMAEXF1/S911BXXSAEXF1"; do
+          # Tentando os firmwares corretos e existentes para o SM-S711B
+          for VERSION in "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" "S711BXXSAEXI1/S711BOXMAEXI1/S711BXXSAEXI1" "S711BXXSAEXF1/S711BOXMAEXF1/S711BXXSAEXF1"; do
              echo "Tentando $VERSION..."
-             $SAMLOADER download -m "SM-S911B" -r "EUX" -v "$VERSION" && DOWNLOADED=true && break || sleep 5
+             $SAMLOADER download -m "SM-S711B" -r "EUX" -v "$VERSION" && DOWNLOADED=true && break || sleep 5
           done
           
           [ "$DOWNLOADED" != "true" ] && echo "Firmware não encontrado no servidor" && exit 1
@@ -129,7 +126,7 @@ jobs:
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
-      - name: Download firmware TARGET (A52s)
+      - name: Download firmware TARGET (SM-A528B / A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER="$HOME/.cargo/bin/samloader"
@@ -137,7 +134,6 @@ jobs:
           mkdir -p "$DEST"
           cd "$DEST"
           
-          # Download Target
           $SAMLOADER download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" || $SAMLOADER download -m "SM-A528B" -r "BTU"
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
