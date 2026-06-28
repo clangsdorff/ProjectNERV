@@ -78,31 +78,36 @@ jobs:
       - name: Download firmware SOURCE (SM-S911B)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          DEST="$ODIN_DIR/SM-S911B_EUX"
+          MODEL="SM-S911B"
+          REGION="EUX"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          samloader download -m "SM-S911B" -r "EUX" -d "$DEST"
+          
+          # Captura a versão completa para evitar erro de IMEI
+          FULL_VER=$(samloader -m "$MODEL" -r "$REGION" checkupdate | head -n 1)
+          echo "Versão completa detectada: $FULL_VER"
+          
+          samloader download -m "$MODEL" -r "$REGION" -v "$FULL_VER" -d "$DEST"
           unzip -o $(find "$DEST" -name "*.zip") -d "$DEST"
           
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
-          
-          # Lógica Mestra: Extrai a versão real do AP e corrige os arquivos .sh
-          REAL_VER=$(echo "$AP" | cut -d'_' -f2)
-          echo "Versão detectada: $REAL_VER"
           echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
           
-          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"SM-S911B/EUX/${REAL_VER}\"|" target/a52sxq/config.sh
-          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"SM-S911B/EUX/${REAL_VER}\"|" unica/configs/qssi.sh
+          # Injeta a versão completa nos arquivos de configuração
+          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"$MODEL/$REGION/$FULL_VER\"|" target/a52sxq/config.sh
+          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"$MODEL/$REGION/$FULL_VER\"|" unica/configs/qssi.sh
 
       - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          DEST="$ODIN_DIR/SM-A528B_BTU"
+          MODEL="SM-A528B"
+          REGION="BTU"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "SM-A528B" -r "BTU" -d "$DEST"
+          samloader download -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
           unzip -o $(find "$DEST" -name "*.zip") -d "$DEST"
-          
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
