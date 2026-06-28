@@ -20,15 +20,16 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações e IMEIs de Validação
+      - name: Ajustar Configurações (S23 FE Real Version)
         run: |
-          # Garante o modelo correto S23 FE (SM-S711B)
+          # Garante o modelo S23 FE e as versões reais nas configs
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
+          find . -name "*.sh" -exec sed -i 's/S911BXXSAEYI1/S711BXXSAEYI1/g' {} +
           
-          # Injeta IMEIs de 15 dígitos nas configs. Isso é OBRIGATÓRIO para o extract_fw.sh passar no validador.
-          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
-          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
-          [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
+          # Ajusta os arquivos locais com a versão exata do port
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"|' target/a52sxq/config.sh
+          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"|' target/a52sxq/config.sh
+          [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"|' unica/configs/qssi.sh || true
 
       - name: Remover submodules fantasma
         run: |
@@ -60,21 +61,14 @@ jobs:
           cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Configurar JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
       - name: Bypass build de ferramentas
         run: |
+          # Desabilita o build de ferramentas que já temos no sistema
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
-
-      - name: Criar links e Wrapper Inteligente Samloader
-        run: |
+          
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
@@ -86,24 +80,7 @@ jobs:
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          
-          # CRIA O WRAPPER INTERCEPTADOR DO SAMLOADER
-          # Ele responde a versão estática correta da One UI 7 se o script perguntar
-          cat << 'EOF' > out/tools/venv/bin/samloader
-          #!/bin/bash
-          if [[ "$*" == *"check-update"* ]] || [[ "$*" == *"checkupdate"* ]] || [[ "$*" == *"check"* ]]; then
-            if [[ "$*" == *"SM-S711B"* ]] || [[ "$*" == *"S711B"* ]]; then
-              echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
-            elif [[ "$*" == *"SM-A528B"* ]] || [[ "$*" == *"A528B"* ]]; then
-              echo "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3"
-            else
-              exec /usr/local/bin/samloader "$@"
-            fi
-          else
-            exec /usr/local/bin/samloader "$@"
-          fi
-          EOF
-          chmod +x out/tools/venv/bin/samloader
+          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
         run: |
@@ -117,47 +94,63 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
-          mkdir -p "$DEST" && cd "$DEST"
+          mkdir -p "$DEST"
+          cd "$DEST"
           
+          # Download com a string completa de 3 partes que o FUS exige
           VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
-          $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."
+          for i in {1..5}; do
+            $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "." && break || sleep 10
+          done
           
-          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
+          ZIP=$(find "." -maxdepth 1 -name "*.zip" | head -1)
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          # Coleta os nomes de arquivos reais
+          AP=$(find  "." -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          CSC=$(find "." -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
+          CP=$(find  "." -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          BL=$(find  "." -maxdepth 1 -name "BL_*.tar.md5"  | head -1 | xargs -I{} basename {})
           
-          # Marker com o padrão AP/CSC/CP para o extrator buscar o BL automaticamente
+          echo "AP: $AP | CSC: $CSC | CP: $CP | BL: $BL"
+          [ -z "$BL" ] && echo "ERRO: BL não encontrado!" && ls -la && exit 1
+          
+          # Marcador clássico do NERV com 3 partes. O BL é localizado automaticamente pelo extract_fw.sh na pasta!
           echo "${AP}/${CSC}/${CP}" > ".downloaded"
+          echo "Marker SOURCE criado: $(cat .downloaded)"
 
       - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST" && cd "$DEST"
+          mkdir -p "$DEST"
+          cd "$DEST"
           
-          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || \
-          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --out-dir "."
+          VERSION="A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3"
+          for i in {1..5}; do
+            $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "$VERSION" --out-dir "." && break || sleep 10
+          done
           
-          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
+          ZIP=$(find "." -maxdepth 1 -name "*.zip" | head -1)
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          AP=$(find  "." -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          CSC=$(find "." -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
+          CP=$(find  "." -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
           echo "${AP}/${CSC}/${CP}" > ".downloaded"
+          echo "Marker TARGET criado: $(cat .downloaded)"
 
       - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Força os IMEIs legítimos de 15 dígitos no ambiente do extrator
-          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
-          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          # Força as versões reais nas variáveis do ambiente
+          export SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"
+          export TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
           
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
@@ -167,14 +160,14 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Mantém os IMEIs ativos durante o build final da imagem
-          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
-          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          export SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"
+          export TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
+          
           bash ./scripts/make_rom.sh
 
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-A52s-OneUI7
+          name: ROM-A52s-ProjectNERV
           path: out/*.zip
