@@ -22,7 +22,7 @@ jobs:
 
       - name: Ajustar Configurações (IMEIs de Validação Obrigatória)
         run: |
-          # Garante que os arquivos tenham IMEIs de 15 dígitos para o extract_fw.sh aceitar
+          find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh || true
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh || true
           [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
@@ -95,49 +95,80 @@ jobs:
       - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          SAMLOADER="$HOME/.cargo/bin/samloader"
+          SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST" && cd "$DEST"
           
-          $SAMLOADER download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "."
+          VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
+          
+          # Loop anti-queda de conexão da Samsung
+          DOWNLOADED=false
+          for i in {1..5}; do
+             echo "Tentativa $i de baixar S23 FE..."
+             if $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."; then
+                DOWNLOADED=true
+                break
+             else
+                echo "Conexão interrompida. Limpando e tentando novamente em 10s..."
+                rm -f *.zip *.enc4 *.tmp
+                sleep 10
+             fi
+          done
+          
+          if [ "$DOWNLOADED" != "true" ]; then
+             echo "Falha ao baixar o firmware após 5 tentativas."
+             exit 1
+          fi
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
+          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
-          echo "Marker SOURCE (S23 FE) gerado: $(cat .downloaded)"
 
       - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          SAMLOADER="$HOME/.cargo/bin/samloader"
+          SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST" && cd "$DEST"
           
-          $SAMLOADER download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "." || $SAMLOADER download -m "SM-A528B" -r "BTU" -d "."
+          # Loop anti-queda de conexão da Samsung para o A52s
+          DOWNLOADED=false
+          for i in {1..5}; do
+             echo "Tentativa $i de baixar A52s..."
+             if $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --out-dir "."; then
+                DOWNLOADED=true
+                break
+             else
+                echo "Conexão interrompida. Limpando e tentando novamente em 10s..."
+                rm -f *.zip *.enc4 *.tmp
+                sleep 10
+             fi
+          done
+          
+          if [ "$DOWNLOADED" != "true" ]; then
+             echo "Falha ao baixar o firmware após 5 tentativas."
+             exit 1
+          fi
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
+          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
-          
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
-          echo "Marker TARGET (A52s) gerado: $(cat .downloaded)"
 
       - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          
-          # Override Absoluto de Variáveis para garantir 15 dígitos durante a extração
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
           
@@ -148,10 +179,8 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
-          
           bash ./scripts/make_rom.sh
 
       - name: Upload
