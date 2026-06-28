@@ -26,11 +26,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils
           
-          # Baixa o binário pré-compilado do samloader-rs (versão estável)
+          # Baixa e extrai o samloader-rs (Lógica de extração robusta)
           mkdir -p $HOME/.local/bin
-          # Usando a URL direta do binário para evitar problemas com o tar
           curl -L "https://github.com/luisbocanegra/samloader-rs/releases/download/v1.2.0/samloader-x86_64-unknown-linux-gnu.tar.gz" -o /tmp/samloader.tar.gz
-          tar -xzf /tmp/samloader.tar.gz -C $HOME/.local/bin/
+          tar -xzf /tmp/samloader.tar.gz -C /tmp/
+          # Localiza o binário independente do nome da pasta interna e move para o bin
+          find /tmp/ -type f -name "samloader" -exec mv {} $HOME/.local/bin/ \;
           chmod +x $HOME/.local/bin/samloader
 
       - name: Ajustar Configurações (A52s)
