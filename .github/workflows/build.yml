@@ -20,14 +20,16 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações (IMEIs de Validação Obrigatória)
+      - name: Ajustar Configurações e IMEIs de Validação
         run: |
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
-          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh || true
-          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh || true
+          
+          # Injeta IMEIs válidos (15 dígitos) nas configurações
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
+          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
           [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
 
-      - name: Remover submodules fantasma
+      - name: Remover submodules fantasma e inicializar o restante
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
@@ -63,14 +65,14 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Bypass build de ferramentas
+      - name: Bypass build de ferramentas (CHECK_TOOLS false)
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Criar links e Magiskboot
+      - name: Criar links de ferramentas e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
@@ -99,34 +101,17 @@ jobs:
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST" && cd "$DEST"
           
+          # Passa a string completa de download que a Samsung exige
           VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
-          
-          # Loop anti-queda de conexão da Samsung
-          DOWNLOADED=false
-          for i in {1..5}; do
-             echo "Tentativa $i de baixar S23 FE..."
-             if $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."; then
-                DOWNLOADED=true
-                break
-             else
-                echo "Conexão interrompida. Limpando e tentando novamente em 10s..."
-                rm -f *.zip *.enc4 *.tmp
-                sleep 10
-             fi
-          done
-          
-          if [ "$DOWNLOADED" != "true" ]; then
-             echo "Falha ao baixar o firmware após 5 tentativas."
-             exit 1
-          fi
+          $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
@@ -137,40 +122,32 @@ jobs:
           DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST" && cd "$DEST"
           
-          # Loop anti-queda de conexão da Samsung para o A52s
-          DOWNLOADED=false
-          for i in {1..5}; do
-             echo "Tentativa $i de baixar A52s..."
-             if $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --out-dir "."; then
-                DOWNLOADED=true
-                break
-             else
-                echo "Conexão interrompida. Limpando e tentando novamente em 10s..."
-                rm -f *.zip *.enc4 *.tmp
-                sleep 10
-             fi
-          done
-          
-          if [ "$DOWNLOADED" != "true" ]; then
-             echo "Falha ao baixar o firmware após 5 tentativas."
-             exit 1
-          fi
+          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || \
+          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --out-dir "."
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
       - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          export SKIP_DEPENDENCY_CHECK=1
+          
+          # Bypassa as ferramentas desnecessárias apagando temporariamente o script
+          mv scripts/build_dependencies.sh scripts/build_dependencies_backup.sh
+          echo "#!/bin/bash" > scripts/build_dependencies.sh
+          echo "exit 0" >> scripts/build_dependencies.sh
+          chmod +x scripts/build_dependencies.sh
+          
+          # Garante variáveis ativas de 15 dígitos
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          export SKIP_DEPENDENCY_CHECK=1
           
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
@@ -197,5 +174,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-A52s
-          path: rom_final.zip
+          name: ROM-A52s-OneUI7
+          path: out/*.zip
