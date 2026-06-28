@@ -137,15 +137,13 @@ TOOLS_DIR="$OUT_DIR/tools"
 
 mkdir -p "$TOOLS_DIR/bin"
 
-# --- MODIFICAÇÃO PARA PULAR BUILDS PROBLEMÁTICOS ---
-ANDROID_TOOLS=false
-APKTOOL=false
+ANDROID_TOOLS=true
+APKTOOL=true
 EROFS_UTILS=true
 IMG2SDAT=true
-MAGISKBOOT=false
-SAMLOADER=false
-SIGNAPK=false
-# --------------------------------------------------
+MAGISKBOOT=true
+SAMLOADER=true
+SIGNAPK=true
 
 ANDROID_TOOLS_EXEC=(
     "adb" "append2simg" "avbtool" "e2fsdroid"
