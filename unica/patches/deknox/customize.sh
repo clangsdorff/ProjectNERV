@@ -1,7 +1,14 @@
 #!/bin/bash
 
+# ==========================================================
+# Project NERV - DeKnox & System Optimization Script
+# Alvo: Galaxy A52s 5G (a52sxq)
+# ==========================================================
+
+# Remove configuração de Blockchain (não suportado/necessário)
 SET_FLOATING_FEATURE_CONFIG "SEC_FLOATING_FEATURE_FRAMEWORK_SUPPORT_BLOCKCHAIN_SERVICE" --delete
 
+# Configurações específicas de Partição/Dispositivo
 if [ "$TARGET_SINGLE_SYSTEM_IMAGE" == "qssi" ]; then
     ADD_TO_WORK_DIR "a05snsdxx" "system" "."
 elif [ "$TARGET_SINGLE_SYSTEM_IMAGE" == "essi" ]; then
@@ -15,79 +22,14 @@ elif [ "$TARGET_SINGLE_SYSTEM_IMAGE" == "self" ]; then
     return 0
 fi
 
+# --- SEÇÃO DE REMOÇÃO DO KNOX (DEKNOX) ---
+echo "[-] Removendo binários e apps do Knox..."
+
+# Apps e Serviços
 DELETE_FROM_WORK_DIR "system" "system/app/BlockchainBasicKit"
 DELETE_FROM_WORK_DIR "system" "system/bin/dualdard"
 DELETE_FROM_WORK_DIR "system" "system/bin/sem_daemon"
 DELETE_FROM_WORK_DIR "system" "system/etc/init/dualdard.rc"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/com.samsung.android.nfc.mpos.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.knox.vpn.proxyhandler.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.hdmapp.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.kgclient.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.analytics.uploader.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.app.networkfilter.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.er.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.kfbp.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.knnr.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.kpecore.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.mpos.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.pushmanager.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.sandbox.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.knox.zt.framework.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/public.libraries-wsm.samsung.txt"
-DELETE_FROM_WORK_DIR "system" "system/etc/sysconfig/preinstalled-packages-com.samsung.android.coldwalletservice.xml"
-DELETE_FROM_WORK_DIR "system" "system/framework/com.samsung.android.nfc.mpos.jar"
-DELETE_FROM_WORK_DIR "system" "system/framework/service-samsung-blockchain.jar"
-DELETE_FROM_WORK_DIR "system" "system/lib/android.hardware.weaver@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/hidl_comm_ddar_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/hidl_tlc_blockchain_comm_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/hidl_tlc_payment_comm_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libdualdar.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libepm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libhal.wsm.samsung.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libhermes_cred.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libhidl_comm_mpos_tui_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libkeyutils.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libknox_filemanager.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libpersona.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libsec_sem.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libsec_semRil.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libsec_semTlc.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libspictrl.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libtlc_blockchain_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libtlc_blockchain_direct_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libtlc_blockchain_keystore.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libtlc_payment_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libtlc_payment_direct_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/libtlc_payment_spay.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.mpos-V1-ndk.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.security.wsm.service-V1-ndk.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.tlc.blockchain@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.tlc.ddar@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.tlc.mpos_tui@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.tlc.payment@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/hidl_comm_ddar_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/hidl_tlc_blockchain_comm_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/hidl_tlc_payment_comm_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libdualdar.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libhal.wsm.samsung.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libhermes_cred.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libhidl_comm_mpos_tui_client.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libsec_sem.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libsec_semRil.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libsec_semTlc.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libspictrl.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libtlc_blockchain_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libtlc_blockchain_direct_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libtlc_blockchain_keystore.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libtlc_payment_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libtlc_payment_direct_comm.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/libtlc_payment_spay.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.mpos-V1-ndk.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.security.wsm.service-V1-ndk.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.tlc.blockchain@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.tlc.ddar@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.tlc.mpos_tui@1.0.so"
-DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.tlc.payment@1.0.so"
 DELETE_FROM_WORK_DIR "system" "system/priv-app/HdmApk"
 DELETE_FROM_WORK_DIR "system" "system/priv-app/KPECore"
 DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxCore"
@@ -103,53 +45,63 @@ DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxZtFramework"
 DELETE_FROM_WORK_DIR "system" "system/priv-app/SEMFactoryApp"
 DELETE_FROM_WORK_DIR "system" "system/priv-app/knoxanalyticsagent"
 DELETE_FROM_WORK_DIR "system" "system/priv-app/knoxvpnproxyhandler"
+
+# Permissões e XMLs
+find work/system/system/etc/permissions/ -name "*knox*" -type f -delete
+find work/system/system/etc/permissions/ -name "*secure*" -type f -delete
+DELETE_FROM_WORK_DIR "system" "system/etc/permissions/com.samsung.android.nfc.mpos.xml"
+DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.hdmapp.xml"
+DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.kgclient.xml"
+
+# Bibliotecas (Lib e Lib64)
+echo "[-] Removendo bibliotecas do Knox..."
+for libdir in "lib" "lib64"; do
+    DELETE_FROM_WORK_DIR "system" "system/$libdir/libdualdar.so"
+    DELETE_FROM_WORK_DIR "system" "system/$libdir/libepm.so"
+    DELETE_FROM_WORK_DIR "system" "system/$libdir/libpersona.so"
+    DELETE_FROM_WORK_DIR "system" "system/$libdir/libsec_sem.so"
+    DELETE_FROM_WORK_DIR "system" "system/$libdir/libsec_semRil.so"
+    DELETE_FROM_WORK_DIR "system" "system/$libdir/libsec_semTlc.so"
+    DELETE_FROM_WORK_DIR "system" "system/$libdir/libtlc_payment_spay.so"
+done
+
+# Fabric Crypto (Android 14+)
 if [[ "$TARGET_API_LEVEL" -ge 34 ]]; then
     DELETE_FROM_WORK_DIR "system" "system/bin/fabric_crypto"
-    DELETE_FROM_WORK_DIR "system" "system/etc/vintf/manifest/fabric_crypto_manifest.xml"
-    DELETE_FROM_WORK_DIR "system" "system/etc/permissions/FabricCryptoLib.xml"
     DELETE_FROM_WORK_DIR "system" "system/etc/init/fabric_crypto.rc"
-    DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.kmxservice.xml"
-    DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.security.fkeymaster-V1-cpp.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.security.fkeymaster-V1-ndk.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib64/com.samsung.security.fabric.cryptod-V1-cpp.so"
-    DELETE_FROM_WORK_DIR "system" "system/framework/FabricCryptoLib.jar"
     DELETE_FROM_WORK_DIR "system" "system/priv-app/KmxService"
 fi
 
-if [[ "$TARGET_SINGLE_SYSTEM_IMAGE" = "qssi" ]]; then
-    DELETE_FROM_WORK_DIR "system" "system/lib/libsec_semAidl.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.security.sem-V1-ndk.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib64/libsec_semAidl.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.security.sem-V1-ndk.so"
-fi
+# --- SEÇÃO DE PATCHES DINÂMICOS (BYPASS) ---
+echo "==== Aplicando patches dinâmicos de bypass do Knox ===="
 
-if [[ "$TARGET_SINGLE_SYSTEM_IMAGE" = "essi" ]]; then
-    DELETE_FROM_WORK_DIR "system" "system/lib/libsec_semHal.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib/vendor.samsung.hardware.security.sem@1.0.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib64/libsec_semHal.so"
-    DELETE_FROM_WORK_DIR "system" "system/lib64/vendor.samsung.hardware.security.sem@1.0.so"
-fi
+# Localiza arquivos smali para patch
+# Nota: O find deve buscar dentro do diretório de extração da ROM
+SMALI_FILES=$(find . -type f -name "*Policy.smali" -o -name "*Manager.smali" | grep -E "Knox|DualDAR|Hdm")
 
-# ==== INÍCIO DO PATCH DINÂMICO VIA SED (SUBSTITUI O GIT APPLY) ====
-echo "==== Aplicando patches dinâmicos do DeKnox via sed ===="
-
-DUALDAR=$(find . -type f -name "DualDARPolicy.smali")
-HDM=$(find . -type f -name "HdmManager.smali")
-
-patch_smali() {
+patch_smali_advanced() {
     local file=$1
-    if [ -n "$file" ] && [ -f "$file" ]; then
-        echo "Modificando $file..."
-        # Remove as checagens condicionais que verificam o status do Knox
-        sed -i '/if-\(eqz\|nez\|null\|nonnull\|eq\|ne\|lt\|le\|gt\|ge\).* :cond_/d' "$file"
-        # Injeta um registrador nulo e força os métodos do Knox a retornarem Null (falsificando o status)
-        sed -i 's/return-object \([pv][0-9]*\)/const\/4 \1, 0x0\n    return-object \1/g' "$file"
-        echo "[+] Patch aplicado com sucesso em $file"
-    else
-        echo "[-] Arquivo não encontrado (DeKnox bypass): $file"
+    if [ -f "$file" ]; then
+        echo "[+] Patching: $file"
+        
+        # 1. Forçar retorno falso (0x0) em métodos de verificação de integridade/Knox
+        # Procura por métodos que retornam booleanos ou objetos e injeta o retorno nulo
+        sed -i '/.method.*isKnoxEnabled/I,/.end method/ s/return.*/const\/4 v0, 0x0\n    return v0/g' "$file"
+        sed -i '/.method.*getKnoxVersion/I,/.end method/ s/return-object.*/const\/4 v0, 0x0\n    return-object v0/g' "$file"
+        
+        # 2. Remover saltos condicionais (Bypass de IFs)
+        sed -i 's/if-eqz/goto/g' "$file"
+        sed -i 's/if-nez/goto/g' "$file"
+        
+        echo "    [OK] $file modificado."
     fi
 }
 
-patch_smali "$DUALDAR"
-patch_smali "$HDM"
-echo "==== DeKnox patches dinâmicos concluídos ===="
+for smali in $SMALI_FILES; do
+    patch_smali_advanced "$smali"
+done
+
+# Limpeza de logs e arquivos temporários de build
+rm -rf work/system/system/etc/init/knox*
+
+echo "==== Customização concluída com sucesso! ===="
