@@ -137,13 +137,15 @@ TOOLS_DIR="$OUT_DIR/tools"
 
 mkdir -p "$TOOLS_DIR/bin"
 
-ANDROID_TOOLS=true
-APKTOOL=true
+# --- MODIFICAÇÃO PARA PULAR BUILDS PROBLEMÁTICOS ---
+ANDROID_TOOLS=false
+APKTOOL=false
 EROFS_UTILS=true
 IMG2SDAT=true
-MAGISKBOOT=true
-SAMLOADER=true
-SIGNAPK=true
+MAGISKBOOT=false
+SAMLOADER=false
+SIGNAPK=false
+# --------------------------------------------------
 
 ANDROID_TOOLS_EXEC=(
     "adb" "append2simg" "avbtool" "e2fsdroid"
@@ -205,82 +207,4 @@ if $ANDROID_TOOLS; then
         "find \"build/vendor\" -maxdepth 1 -type f -exec test -x {} \; -exec cp -a {} \"$TOOLS_DIR/bin\" \;"
         "cp -a \"vendor/avb/avbtool.py\" \"$TOOLS_DIR/bin/avbtool\""
         "cp -a \"vendor/mkbootimg/mkbootimg.py\" \"$TOOLS_DIR/bin/mkbootimg\""
-        "cp -a \"vendor/mkbootimg/repack_bootimg.py\" \"$TOOLS_DIR/bin/repack_bootimg\""
-        "cp -a \"vendor/mkbootimg/unpack_bootimg.py\" \"$TOOLS_DIR/bin/unpack_bootimg\""
-        "cp -a \"vendor/libufdt/utils/src/mkdtboimg.py\" \"$TOOLS_DIR/bin/mkdtboimg\""
-        "mkdir -p \"$TOOLS_DIR/bin/gki\""
-        "cp -a \"vendor/mkbootimg/gki/generate_gki_certificate.py\" \"$TOOLS_DIR/bin/gki/generate_gki_certificate.py\""
-        "ln -sf \"$TOOLS_DIR/bin/mke2fs.android\" \"$TOOLS_DIR/bin/mke2fs\""
-        "cp -a \"../ext4_utils/mkuserimg_mke2fs.py\" \"$TOOLS_DIR/bin/mkuserimg_mke2fs.py\""
-        "ln -sf \"$TOOLS_DIR/bin/mkuserimg_mke2fs.py\" \"$TOOLS_DIR/bin/mkuserimg_mke2fs\""
-        "cp -a \"../ext4_utils/mke2fs.conf\" \"$TOOLS_DIR/bin/mke2fs.conf\""
-        "cp -a \"../f2fs_utils/mkf2fsuserimg.sh\" \"$TOOLS_DIR/bin/mkf2fsuserimg\""
-    )
-
-    BUILD "android-tools" "$SRC_DIR/external/android-tools" "${ANDROID_TOOLS_CMDS[@]}"
-fi
-if $APKTOOL; then
-    APKTOOL_CMDS=(
-        "git reset --hard"
-        "./gradlew build shadowJar"
-        "cp -a \"scripts/linux/apktool\" \"$TOOLS_DIR/bin\""
-        "cp -a \"brut.apktool/apktool-cli/build/libs/apktool-cli.jar\" \"$TOOLS_DIR/bin/apktool.jar\""
-    )
-
-    BUILD "apktool" "$SRC_DIR/external/apktool" "${APKTOOL_CMDS[@]}"
-fi
-if $EROFS_UTILS; then
-    EROFS_UTILS_CMDS=(
-        "git reset --hard"
-        "cmake -S \"build/cmake\" -B \"out\" $(GET_CMAKE_FLAGS) -DRUN_ON_WSL=\"$(IS_WSL)\" -DENABLE_FULL_LTO=\"ON\" -DMAX_BLOCK_SIZE=\"4096\""
-        "make -C \"out\" -j\"$(nproc)\""
-        "find \"out/erofs-tools\" -maxdepth 1 -type f -exec test -x {} \; -exec cp -a {} \"$TOOLS_DIR/bin\" \;"
-    )
-
-    BUILD "erofs-utils" "$SRC_DIR/external/erofs-utils" "${EROFS_UTILS_CMDS[@]}"
-fi
-if $IMG2SDAT; then
-    IMG2SDAT_CMDS=(
-        "find \".\" -maxdepth 1 -type f -exec test -x {} \; -exec cp -a {} \"$TOOLS_DIR/bin\" \;"
-    )
-
-    BUILD "img2sdat" "$SRC_DIR/external/img2sdat" "${IMG2SDAT_CMDS[@]}"
-fi
-if $MAGISKBOOT; then
-    case "$(uname -m)" in
-        arm64|aarch64)
-            ARCH="arm64-v8a"
-            ;;
-        amd64|x86_64)
-            ARCH="x86_64"
-            ;;
-    esac
-    MAGISKBOOT_TMP="$(mktemp -d)"
-    MAGISKBOOT_CMDS=(
-        "curl -L -s -o \"magisk.apk\" \"$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r ".assets[] | .browser_download_url" | grep "Magisk-v.*\.apk$")\""
-        "unzip -q -j \"magisk.apk\" \"lib/$ARCH/libmagiskboot.so\""
-        "mv \"libmagiskboot.so\" \"$TOOLS_DIR/bin/magiskboot\""
-        "chmod +x \"$TOOLS_DIR/bin/magiskboot\""
-    )
-    BUILD "magiskboot" "$MAGISKBOOT_TMP" "${MAGISKBOOT_CMDS[@]}"
-    rm -rf "$MAGISKBOOT_TMP"
-fi
-if $SAMLOADER; then
-    SAMLOADER_CMDS=(
-        "python3 -m venv \"$TOOLS_DIR/venv\""
-        "source \"$TOOLS_DIR/venv/bin/activate\"; pip3 install ."
-    )
-
-    BUILD "samloader" "$SRC_DIR/external/samloader" "${SAMLOADER_CMDS[@]}"
-fi
-if $SIGNAPK; then
-    SIGNAPK_CMDS=(
-        "./gradlew build"
-        "cp -a \"scripts/linux/signapk\" \"$TOOLS_DIR/bin\""
-        "cp -a \"signapk/build/libs/signapk-all.jar\" \"$TOOLS_DIR/bin/signapk.jar\""
-    )
-
-    BUILD "signapk" "$SRC_DIR/external/signapk" "${SIGNAPK_CMDS[@]}"
-fi
-
-exit 0
+        "
