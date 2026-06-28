@@ -28,13 +28,14 @@ jobs:
           
           # Baixa e extrai o samloader-rs (Lógica de extração robusta)
           mkdir -p $HOME/.local/bin
-          curl -L "https://github.com/luisbocanegra/samloader-rs/releases/download/v1.2.0/samloader-x86_64-unknown-linux-gnu.tar.gz" -o /tmp/samloader.tar.gz
-          tar -xzf /tmp/samloader.tar.gz -C /tmp/
+          # A release v1.2.0 usa arquivos tar.xz do repositório oficial
+          curl -L "https://github.com/topjohnwu/samloader-rs/releases/download/1.2.0/samloader-linux-x86_64.tar.xz" -o /tmp/samloader.tar.xz
+          tar -xf /tmp/samloader.tar.xz -C /tmp/
           # Localiza o binário independente do nome da pasta interna e move para o bin
           find /tmp/ -type f -name "samloader" -exec mv {} $HOME/.local/bin/ \;
           chmod +x $HOME/.local/bin/samloader
 
-      - name: Ajustar Configurações (A52s)
+      - name: Ajustar Configurações (A52s )
         run: |
           # Garante que o projeto use o modelo correto
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
