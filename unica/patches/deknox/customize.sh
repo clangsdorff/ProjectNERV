@@ -1,11 +1,25 @@
 #!/bin/bash
 
 # ==========================================================
-# Project NERV - DeKnox & System Optimization Script
+# Project NERV - DeKnox & System Optimization Script (Final)
 # Alvo: Galaxy A52s 5G (a52sxq)
 # ==========================================================
 
-# Remove configuração de Blockchain (não suportado/necessário)
+# --- FUNÇÕES DE COMPATIBILIDADE ---
+# Definimos as funções aqui para garantir que o script funcione mesmo em sub-shells
+DELETE_FROM_WORK_DIR() {
+    local partition=$1
+    local path=$2
+    local target="work/$partition/$path"
+    if [ -e "$target" ] || [ -L "$target" ]; then
+        echo "[-] Removendo: $target"
+        rm -rf "$target"
+    fi
+}
+
+# --- INÍCIO DA CUSTOMIZAÇÃO ---
+
+# Remove configuração de Blockchain
 SET_FLOATING_FEATURE_CONFIG "SEC_FLOATING_FEATURE_FRAMEWORK_SUPPORT_BLOCKCHAIN_SERVICE" --delete
 
 # Configurações específicas de Partição/Dispositivo
@@ -23,46 +37,49 @@ elif [ "$TARGET_SINGLE_SYSTEM_IMAGE" == "self" ]; then
 fi
 
 # --- SEÇÃO DE REMOÇÃO DO KNOX (DEKNOX) ---
-echo "[-] Removendo binários e apps do Knox..."
+echo "==== Iniciando DeKnox Avançado ===="
 
-# Apps e Serviços
-DELETE_FROM_WORK_DIR "system" "system/app/BlockchainBasicKit"
-DELETE_FROM_WORK_DIR "system" "system/bin/dualdard"
-DELETE_FROM_WORK_DIR "system" "system/bin/sem_daemon"
-DELETE_FROM_WORK_DIR "system" "system/etc/init/dualdard.rc"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/HdmApk"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KPECore"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxCore"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxERAgent"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxFrameBufferProvider"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxGuard"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxMposAgent"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxNetworkFilter"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxNeuralNetworkRuntime"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxPushManager"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxSandbox"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/KnoxZtFramework"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/SEMFactoryApp"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/knoxanalyticsagent"
-DELETE_FROM_WORK_DIR "system" "system/priv-app/knoxvpnproxyhandler"
+# Apps e Serviços do Knox
+KNOX_APPS=(
+    "system/app/BlockchainBasicKit"
+    "system/bin/dualdard"
+    "system/bin/sem_daemon"
+    "system/etc/init/dualdard.rc"
+    "system/priv-app/HdmApk"
+    "system/priv-app/KPECore"
+    "system/priv-app/KnoxCore"
+    "system/priv-app/KnoxERAgent"
+    "system/priv-app/KnoxFrameBufferProvider"
+    "system/priv-app/KnoxGuard"
+    "system/priv-app/KnoxMposAgent"
+    "system/priv-app/KnoxNetworkFilter"
+    "system/priv-app/KnoxNeuralNetworkRuntime"
+    "system/priv-app/KnoxPushManager"
+    "system/priv-app/KnoxSandbox"
+    "system/priv-app/KnoxZtFramework"
+    "system/priv-app/SEMFactoryApp"
+    "system/priv-app/knoxanalyticsagent"
+    "system/priv-app/knoxvpnproxyhandler"
+)
 
-# Permissões e XMLs
-find work/system/system/etc/permissions/ -name "*knox*" -type f -delete
-find work/system/system/etc/permissions/ -name "*secure*" -type f -delete
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/com.samsung.android.nfc.mpos.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.hdmapp.xml"
-DELETE_FROM_WORK_DIR "system" "system/etc/permissions/privapp-permissions-com.samsung.android.kgclient.xml"
+for app in "${KNOX_APPS[@]}"; do
+    DELETE_FROM_WORK_DIR "system" "$app"
+done
 
-# Bibliotecas (Lib e Lib64)
-echo "[-] Removendo bibliotecas do Knox..."
+# Limpeza de Permissões e XMLs (Geral)
+echo "[-] Limpando arquivos de configuração do Knox..."
+find work/system/system/etc/permissions/ -type f \( -name "*knox*" -o -name "*secure*" \) -exec rm -f {} +
+find work/system/system/etc/sysconfig/ -type f -name "*knox*" -exec rm -f {} +
+
+# Bibliotecas do Knox
 for libdir in "lib" "lib64"; do
-    DELETE_FROM_WORK_DIR "system" "system/$libdir/libdualdar.so"
-    DELETE_FROM_WORK_DIR "system" "system/$libdir/libepm.so"
-    DELETE_FROM_WORK_DIR "system" "system/$libdir/libpersona.so"
-    DELETE_FROM_WORK_DIR "system" "system/$libdir/libsec_sem.so"
-    DELETE_FROM_WORK_DIR "system" "system/$libdir/libsec_semRil.so"
-    DELETE_FROM_WORK_DIR "system" "system/$libdir/libsec_semTlc.so"
-    DELETE_FROM_WORK_DIR "system" "system/$libdir/libtlc_payment_spay.so"
+    LIBS=(
+        "libdualdar.so" "libepm.so" "libpersona.so" "libsec_sem.so" 
+        "libsec_semRil.so" "libsec_semTlc.so" "libtlc_payment_spay.so"
+    )
+    for lib in "${LIBS[@]}"; do
+        DELETE_FROM_WORK_DIR "system" "system/$libdir/$lib"
+    done
 done
 
 # Fabric Crypto (Android 14+)
@@ -75,25 +92,19 @@ fi
 # --- SEÇÃO DE PATCHES DINÂMICOS (BYPASS) ---
 echo "==== Aplicando patches dinâmicos de bypass do Knox ===="
 
-# Localiza arquivos smali para patch
-# Nota: O find deve buscar dentro do diretório de extração da ROM
-SMALI_FILES=$(find . -type f -name "*Policy.smali" -o -name "*Manager.smali" | grep -E "Knox|DualDAR|Hdm")
+# Localiza arquivos smali para patch dentro da pasta de trabalho
+SMALI_FILES=$(find . -type f \( -name "*Policy.smali" -o -name "*Manager.smali" \) | grep -E "Knox|DualDAR|Hdm")
 
 patch_smali_advanced() {
     local file=$1
     if [ -f "$file" ]; then
         echo "[+] Patching: $file"
-        
-        # 1. Forçar retorno falso (0x0) em métodos de verificação de integridade/Knox
-        # Procura por métodos que retornam booleanos ou objetos e injeta o retorno nulo
+        # Força retorno falso em métodos de verificação
         sed -i '/.method.*isKnoxEnabled/I,/.end method/ s/return.*/const\/4 v0, 0x0\n    return v0/g' "$file"
         sed -i '/.method.*getKnoxVersion/I,/.end method/ s/return-object.*/const\/4 v0, 0x0\n    return-object v0/g' "$file"
-        
-        # 2. Remover saltos condicionais (Bypass de IFs)
+        # Bypass de condicionais
         sed -i 's/if-eqz/goto/g' "$file"
         sed -i 's/if-nez/goto/g' "$file"
-        
-        echo "    [OK] $file modificado."
     fi
 }
 
@@ -101,7 +112,4 @@ for smali in $SMALI_FILES; do
     patch_smali_advanced "$smali"
 done
 
-# Limpeza de logs e arquivos temporários de build
-rm -rf work/system/system/etc/init/knox*
-
-echo "==== Customização concluída com sucesso! ===="
+echo "==== Customização finalizada com sucesso! ===="
