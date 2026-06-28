@@ -22,7 +22,7 @@ jobs:
 
       - name: Ajustar Configurações (S23 Base)
         run: |
-          # Garante que SM-S911B seja a base em todo o projeto
+          # Troca referências para S23 (S911B) que tem One UI 7 estável
           find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
           find . -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/S911BXXSAEYI1/g' {} +
           sed -i 's/SOURCE_FIRMWARE=.*/SOURCE_FIRMWARE="SM-S911B\/EUX\/S911BXXSAEYI1"/' target/a52sxq/config.sh
@@ -34,7 +34,7 @@ jobs:
           git rm --cached -f external/samloader 2>/dev/null || true
           git submodule update --init
 
-      - name: Instalar dependências e Samloader via GitHub
+      - name: Instalar dependências e Samloader (Método ZIP)
         run: |
           sudo apt-get update
           sudo apt-get install -yq \
@@ -44,10 +44,10 @@ jobs:
             curl xxd patchelf flex bison lz4 libarchive-tools \
             build-essential python3 python3-pip python3-venv \
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
-            e2fsprogs webp pcre2-utils git
+            e2fsprogs webp pcre2-utils
           
-          # Instala samloader diretamente do código fonte para evitar erro de versão no PyPI
-          pip3 install --break-system-packages git+https://github.com/nss-group/samloader.git
+          # Instala Samloader via ZIP para evitar erro de credenciais do Git
+          pip3 install --break-system-packages https://github.com/nss-group/samloader/archive/refs/heads/master.zip
 
       - name: Configurar JDK 21
         uses: actions/setup-java@v4
@@ -55,7 +55,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Bypass build de ferramentas
+      - name: Bypass build de ferramentas (CHECK_TOOLS false)
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
@@ -79,7 +79,7 @@ jobs:
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
           
-          # Linka o samloader instalado via pip para o path do NERV
+          # Linka o samloader python para o caminho esperado pelo ProjectNERV
           ln -sf $(which samloader) out/tools/venv/bin/samloader
 
       - name: Download firmware SOURCE (S23 - One UI 7)
@@ -90,15 +90,14 @@ jobs:
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
           
-          # Tentativas de download com Samloader Python
+          # Tentativas One UI 7 (Sintaxe Python: samloader -m ... -r ... download)
           for VERSION in "S911BXXSAEYI1" "S911BXXSAEXI1" "S911BXXSAEXF1"; do
              echo "Tentando $MODEL/$REGION/$VERSION..."
-             samloader -m "$MODEL" -r "$REGION" checkupdate
              samloader -m "$MODEL" -r "$REGION" download -v "$VERSION" -o "$DEST" \
                && DOWNLOADED=true && break || sleep 5
           done
           
-          [ "$DOWNLOADED" != "true" ] && echo "Erro: Firmware S23 não encontrado" && exit 1
+          [ "$DOWNLOADED" != "true" ] && echo "Firmware S23 não encontrado" && exit 1
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           
@@ -115,7 +114,6 @@ jobs:
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
           
-          # Download A52s via Python Samloader
           samloader -m "$MODEL" -r "$REGION" download -v "A528BXXSBGYI3" -o "$DEST" || samloader -m "$MODEL" -r "$REGION" download -o "$DEST"
           
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
@@ -139,5 +137,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s
+          name: ProjectNERV-A52s-OneUI7
           path: out/*.zip
