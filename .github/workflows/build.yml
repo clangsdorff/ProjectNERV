@@ -22,15 +22,16 @@ jobs:
 
       - name: Ajustar Configurações e IMEIs de Validação
         run: |
-          # Garante o modelo S23 FE (S711B) em todos os scripts
+          # Garante que todo o projeto use o modelo correto S23 FE (SM-S711B)
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
-          # Injeta IMEIs de 15 dígitos nas configs. O extrator EXIGE isso para validar.
+          # Injeta IMEIs de 15 dígitos nas configs. Isso é OBRIGATÓRIO para o extract_fw.sh passar.
+          # O script usa isso apenas para validar o formato da string.
           sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
           [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
 
-      - name: Remover submodules fantasma
+      - name: Remover submodules fantasma e inicializar o restante
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
@@ -62,7 +63,7 @@ jobs:
 
       - name: Bypass build de ferramentas e preparar links
         run: |
-          # Desabilita build de ferramentas que já temos no Ubuntu
+          # Desabilita build de ferramentas que já temos no Ubuntu ou no workflow
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
@@ -92,58 +93,71 @@ jobs:
       - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
-          mkdir -p "$DEST"
+          mkdir -p "$DEST" && cd "$DEST"
           
-          # Sintaxe correta do Samloader Rust com flags
+          # Sintaxe Rust correta com flags --model e --region
           VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
-          samloader download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "$DEST"
+          $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."
           
-          cd "$DEST"
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          # Captura nomes reais e monta marcador .downloaded
+          # Identifica os nomes reais dos arquivos tar.md5
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          
+          # O marcador deve ser AP/CSC/CP/BL para o extrator aceitar
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
       - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          SAMLOADER_BIN="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST"
+          mkdir -p "$DEST" && cd "$DEST"
           
-          samloader download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "$DEST" || \
-          samloader download --model "SM-A528B" --region "BTU" --out-dir "$DEST"
+          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || \
+          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --out-dir "."
           
-          cd "$DEST"
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
+          
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
-      - name: Extract and Build ROM
+      - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Mantém os IMEIs ativos no ambiente para o extrator
+          # Força as variáveis de IMEI para o extrator não dar erro de validação
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
           
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
+
+      - name: Build ROM
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
+          
+          # Mantém os IMEIs ativos no ambiente para o build final
+          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
+          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          
           bash ./scripts/make_rom.sh
 
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-A52s-ProjectNERV
+          name: ProjectNERV-A52s-OneUI7
           path: out/*.zip
