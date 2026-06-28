@@ -20,21 +20,14 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações (S23 FE Version)
-        run: |
-          # Garante o modelo S23 FE e as versões reais nas configs
-          find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
-          find . -name "*.sh" -exec sed -i 's/352404911234563/S711BXXSAEYI1/g' {} +
-          find . -name "*.sh" -exec sed -i 's/352599501234566/A528BXXSBGYI3/g' {} +
-
-      - name: Remover submodules fantasma
+      - name: Remover submodules fantasma e inicializar o restante
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
           git rm --cached -f external/samloader 2>/dev/null || true
           git submodule update --init
 
-      - name: Instalar dependências
+      - name: Instalar dependências do sistema
         run: |
           sudo apt-get update
           sudo apt-get install -yq \
@@ -51,19 +44,35 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs && git checkout 1.2.0
+          cd /tmp/samloader-rs
+          git checkout 1.2.0
+          
+          # Aplica o patch
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
+          
           cargo build --release
+          mkdir -p $HOME/.cargo/bin
           cp target/release/samloader $HOME/.cargo/bin/samloader
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Bypass build de ferramentas
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Bypass build de ferramentas (CHECK_TOOLS false)
         run: |
-          # Usa as ferramentas que já temos no sistema
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
+          sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
+          sed -i 's/^IMG2SDAT=true$/IMG2SDAT=false/'           scripts/build_dependencies.sh
+          sed -i 's/^MAGISKBOOT=true$/MAGISKBOOT=false/'       scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
-          
+
+      - name: Criar links de ferramentas e Magiskboot
+        run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
@@ -75,6 +84,7 @@ jobs:
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
+          
           ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
@@ -82,9 +92,10 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (S23 FE - One UI 7)
+      - name: Download firmware SOURCE (SM-S711B / S23 FE - One UI 7)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER="$HOME/.cargo/bin/samloader"
@@ -92,7 +103,6 @@ jobs:
           mkdir -p "$DEST"
           cd "$DEST"
           
-          # Download com string completa
           $SAMLOADER download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -d "."
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
@@ -103,10 +113,9 @@ jobs:
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           
-          # Marker no formato AP/CSC/CP/BL
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
-      - name: Download firmware TARGET (A52s)
+      - name: Download firmware TARGET (SM-A528B / A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER="$HOME/.cargo/bin/samloader"
@@ -123,23 +132,35 @@ jobs:
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
+          
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
-      - name: Extract and Build ROM
+      - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          # Passa as versões reais para o ambiente
-          export SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"
-          export TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
-          
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
+
+      - name: Build ROM
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
           bash ./scripts/make_rom.sh
 
+      - name: Upload
+        if: always()
+        run: |
+          ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+             SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+             curl -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile"
+             cp "$ZIP_FILE" ./rom_final.zip
+          fi
+          
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s-OneUI7
-          path: out/*.zip
+          name: ROM-A52s
+          path: rom_final.zip
