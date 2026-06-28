@@ -26,16 +26,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils
           
-          # Baixa e extrai o samloader-rs (Lógica de extração robusta)
+          # Baixa e extrai o samloader-rs
           mkdir -p $HOME/.local/bin
-          # A release v1.2.0 usa arquivos tar.xz do repositório oficial
+          mkdir -p /tmp/samloader_extract
           curl -L "https://github.com/topjohnwu/samloader-rs/releases/download/1.2.0/samloader-linux-x86_64.tar.xz" -o /tmp/samloader.tar.xz
-          tar -xf /tmp/samloader.tar.xz -C /tmp/
-          # Localiza o binário independente do nome da pasta interna e move para o bin
-          find /tmp/ -type f -name "samloader" -exec mv {} $HOME/.local/bin/ \;
+          tar -xf /tmp/samloader.tar.xz -C /tmp/samloader_extract/
+          
+          # Move o binário para o local correto (limitando o find ao diretório de extração para evitar erros de permissão )
+          find /tmp/samloader_extract/ -type f -name "samloader" -exec mv {} $HOME/.local/bin/ \;
           chmod +x $HOME/.local/bin/samloader
+          rm -rf /tmp/samloader_extract /tmp/samloader.tar.xz
 
-      - name: Ajustar Configurações (A52s )
+      - name: Ajustar Configurações (A52s)
         run: |
           # Garante que o projeto use o modelo correto
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
