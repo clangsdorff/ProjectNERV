@@ -20,15 +20,10 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações (S23 Base)
+      - name: Debug e Correção de Estrutura
         run: |
-          # Força o S23 (S911B) como doador para garantir One UI 7 estável
           find . -name "*.sh" -exec sed -i 's/SM-S711B/SM-S911B/g' {} +
-          find . -name "*.sh" -exec sed -i 's/S711BXXSAEYI1/S911BXXSAEYI1/g' {} +
-          sed -i 's/SOURCE_FIRMWARE=.*/SOURCE_FIRMWARE="SM-S911B\/EUX\/S911BXXSAEYI1"/' target/a52sxq/config.sh
-
-      - name: Remover submodules fantasma
-        run: |
+          # Remove submodules que causam falha no clone
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
           git rm --cached -f external/samloader 2>/dev/null || true
@@ -46,33 +41,25 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs webp pcre2-utils
 
-      - name: Instalar Rust e compilar samloader-rs com patch -p3
+      - name: Cache samloader-rs binary
+        id: cache-samloader
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/bin/samloader
+          key: samloader-v1.2.0-patched
+
+      - name: Instalar Rust e compilar samloader-rs (se necessário)
+        if: steps.cache-samloader.outputs.cache-hit != 'true'
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs
-          git checkout 1.2.0
-          
-          # APLICAÇÃO DO PATCH COM -p3 PARA CORRIGIR CAMINHOS DO DIFF
-          if [ -f "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch" ]; then
-            patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
-          else
-            echo "::error::Arquivo de patch não encontrado!"
-            exit 1
-          fi
-
+          cd /tmp/samloader-rs && git checkout 1.2.0
+          patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           cargo build --release
-          cp target/release/samloader $HOME/.cargo/bin/samloader
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          sudo cp target/release/samloader /usr/local/bin/samloader
 
-      - name: Configurar JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Bypass build de ferramentas (CHECK_TOOLS false)
+      - name: Bypass build de ferramentas
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
@@ -94,40 +81,51 @@ jobs:
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
+          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
 
-      - name: Download firmware SOURCE (SM-S911B / S23 - One UI 7)
+      - name: Restore source firmware extraction cache
+        id: cache-source-fw
+        uses: actions/cache/restore@v4
+        with:
+          path: out/fw/SM-S911B_EUX
+          key: source-fw-${{ matrix.target }}-latest
+          restore-keys: |
+            source-fw-${{ matrix.target }}-
+
+      - name: Download source firmware (SM-S911B - latest disponível)
+        if: steps.cache-source-fw.outputs.cache-hit != 'true'
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          source $HOME/.cargo/env
-          MODEL="SM-S911B"
-          REGION="EUX"
-          DEST="$ODIN_DIR/${MODEL}_${REGION}"
+          DEST="$ODIN_DIR/SM-S911B_EUX"
           mkdir -p "$DEST"
-          
-          for VERSION in "S911BXXSAEYI1" "S911BXXSAEXI1" "S911BXXSAEXF1"; do
-             echo "Tentando $VERSION..."
-             samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
-               && DOWNLOADED=true && break || sleep 5
+          echo "Baixando firmware do S23 (Donor)..."
+          for i in 1 2 3 4 5; do
+            samloader download -m "SM-S911B" -r "EUX" -d "$DEST" && break
+            sleep 10
           done
-          
-          [ "$DOWNLOADED" != "true" ] && exit 1
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+          # Extrai versão para o Cache
+          VER=$(echo "$AP" | cut -d'_' -f2)
+          echo "SOURCE_VERSION=$VER" >> $GITHUB_ENV
 
-      - name: Download firmware TARGET (A52s)
+      - name: Save source firmware extraction cache
+        if: steps.cache-source-fw.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: out/fw/SM-S911B_EUX
+          key: source-fw-${{ matrix.target }}-${{ env.SOURCE_VERSION }}
+
+      - name: Download target firmware (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          source $HOME/.cargo/env
-          MODEL="SM-A528B"
-          REGION="BTU"
-          DEST="$ODIN_DIR/${MODEL}_${REGION}"
+          DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST"
-          samloader download -m "$MODEL" -r "$REGION" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "$MODEL" -r "$REGION" -d "$DEST"
+          samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "SM-A528B" -r "BTU" -d "$DEST"
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
@@ -139,14 +137,12 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          export SOURCE_FIRMWARE="SM-S911B/EUX/S911BXXSAEYI1"
-          ./scripts/extract_fw.sh --ignore-target
-          ./scripts/extract_fw.sh --ignore-source
+          ./scripts/extract_fw.sh
           bash ./scripts/make_rom.sh
 
       - name: Upload Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ProjectNERV-A52s-OneUI7
+          name: ProjectNERV-A52s-S23Base
           path: out/*.zip
