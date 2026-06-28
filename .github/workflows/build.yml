@@ -27,7 +27,7 @@ jobs:
           git rm --cached -f external/samloader 2>/dev/null || true
           git submodule update --init
 
-      - name: Instalar dependências
+      - name: Instalar dependências do sistema (Substitutos)
         run: |
           sudo apt-get update
           sudo apt-get install -yq \
@@ -44,6 +44,7 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
           cargo install samloader
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Configurar JDK 21
         uses: actions/setup-java@v4
@@ -51,140 +52,97 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Pré-popular out/tools/bin para enganar CHECK_TOOLS
+      - name: Patch direto no build_dependencies.sh (Lógica Claude)
         run: |
-          mkdir -p out/tools/bin/gki out/tools/venv/bin
+          # Força todas as flags de build para false para pular a compilação
+          sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
+          sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
+          sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
+          sed -i 's/^IMG2SDAT=true$/IMG2SDAT=false/'           scripts/build_dependencies.sh
+          sed -i 's/^MAGISKBOOT=true$/MAGISKBOOT=false/'       scripts/build_dependencies.sh
+          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
+          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
+          
+          echo "=== Flags após patch (Devem estar todas false) ==="
+          grep -E "^(ANDROID_TOOLS|APKTOOL|EROFS_UTILS|IMG2SDAT|MAGISKBOOT|SAMLOADER|SIGNAPK)=" scripts/build_dependencies.sh
 
-          # Binários reais do sistema
-          for bin in adb fastboot simg2img img2simg; do
-            BIN_PATH=$(which $bin 2>/dev/null) \
-              && ln -sf "$BIN_PATH" out/tools/bin/$bin || true
-          done
-
-          ln -sf $(which mke2fs)    out/tools/bin/mke2fs.android 2>/dev/null || true
-          ln -sf $(which mke2fs)    out/tools/bin/mke2fs         2>/dev/null || true
-          ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid      2>/dev/null || true
-
-          # Stubs para o resto (CHECK_TOOLS só checa se o arquivo existe)
-          for stub in append2simg avbtool fec lpadd lpdump lpflash lpmake lpunpack \
-                      make_f2fs mkbootfs mkbootimg mkdtboimg mke2fs.conf mkf2fsuserimg \
-                      mkuserimg_mke2fs repack_bootimg sload_f2fs unpack_bootimg zipalign \
-                      ext2simg; do
-            printf '#!/bin/sh\ntrue\n' > "out/tools/bin/$stub"
-            chmod +x "out/tools/bin/$stub"
-          done
-          printf '#!/bin/sh\ntrue\n' > "out/tools/bin/gki/generate_gki_certificate.py"
-          chmod +x "out/tools/bin/gki/generate_gki_certificate.py"
-
-          # apktool
-          touch out/tools/bin/apktool.jar
-          printf '#!/bin/sh\ntrue\n' > out/tools/bin/apktool
-          chmod +x out/tools/bin/apktool
-
-          # magiskboot — baixar do Magisk APK (igual ao script original)
-          MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest \
-            | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
+      - name: Criar links para binários do sistema (Essencial para a ROM)
+        run: |
+          # O script da ROM procura os binários em out/tools/bin. Precisamos apontar para o sistema.
+          mkdir -p out/tools/bin out/tools/venv/bin
+          
+          ln -sf $(which simg2img) out/tools/bin/simg2img
+          ln -sf $(which img2simg) out/tools/bin/img2simg
+          ln -sf $(which mke2fs)   out/tools/bin/mke2fs
+          ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
+          
+          # Magiskboot (único que não tem no apt, baixamos o binário pronto)
+          MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
 
-          # samloader — symlink do cargo para o path que o script checa
-          source $HOME/.cargo/env
-          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
-
-          # signapk — stubs
-          touch out/tools/bin/signapk.jar
-          printf '#!/bin/sh\ntrue\n' > out/tools/bin/signapk
-          chmod +x out/tools/bin/signapk
-
-          echo "=== out/tools/bin ==="
-          ls -la out/tools/bin/
-
-      - name: Build dependencies (deve pular tudo via CHECK_TOOLS)
+      - name: Build dependencies (Pulo instantâneo)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download firmware SOURCE (SM-S711B / S23 FE)
+      - name: Download firmware SOURCE (S23 FE)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          source $HOME/.cargo/env
           MODEL="SM-S711B"
           REGION="EUX"
           VERSION="S711BXXSAEYI1"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-
-          for i in 1 2 3 4 5; do
-            echo "Tentativa $i..."
-            samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -o "$DEST" \
-              && break || sleep 20
-          done
-
+          samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST"
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-
-          AP=$(find  "$DEST" -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
-          CSC=$(find "$DEST" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
-          CP=$(find  "$DEST" -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" -name "CSC_*.tar.md5" | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-          echo "Marker: $(cat $DEST/.downloaded)"
 
-      - name: Download firmware TARGET (SM-A528B / A52s)
+      - name: Download firmware TARGET (A52s)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          source $HOME/.cargo/env
           MODEL="SM-A528B"
           REGION="BTU"
           VERSION="A528BXXSBGYI3"
           DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-
-          for i in 1 2 3 4 5; do
-            echo "Tentativa $i..."
-            samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -o "$DEST" \
-              && break || sleep 20
-          done
-
+          samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST"
           ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
           unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-
-          AP=$(find  "$DEST" -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
-          CSC=$(find "$DEST" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
-          CP=$(find  "$DEST" -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" -name "CSC_*.tar.md5" | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
-          echo "Marker: $(cat $DEST/.downloaded)"
 
-      - name: Extract firmwares
+      - name: Extract and Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
-
-      - name: Build ROM
-        run: |
-          source ./buildenv.sh ${{ matrix.target }}
-          export SKIP_DEPENDENCY_CHECK=1
           bash ./scripts/make_rom.sh
 
       - name: Upload para GoFile
+        if: always()
         run: |
           ZIP_FILE=$(find out -maxdepth 1 -name "*.zip" | head -1)
-          [ -z "$ZIP_FILE" ] && echo "Nenhum ZIP encontrado" && exit 1
-          SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
-          RESPONSE=$(curl -s -F "file=@${ZIP_FILE}" \
-            "https://${SERVER}.gofile.io/contents/uploadfile")
-          echo "Link: $(echo "$RESPONSE" | jq -r '.data.downloadPage')"
+          if [ -n "$ZIP_FILE" ]; then
+            SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+            RESPONSE=$(curl -s -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile")
+            echo "Link: $(echo "$RESPONSE" | jq -r '.data.downloadPage')"
+          fi
 
       - name: Salvar artefato
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-A52s
+          name: ProjectNERV-A52s
           path: out/*.zip
-          retention-days: 7
