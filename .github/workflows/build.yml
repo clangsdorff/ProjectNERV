@@ -20,7 +20,7 @@ jobs:
         with:
           submodules: false
 
-      - name: Configurar submodules e corrigir erofs-utils
+      - name: Configurar submodules e erofs-utils
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
@@ -53,16 +53,14 @@ jobs:
           sudo cp target/release/samloader /usr/local/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Preparar ferramentas extras (Magiskboot)
+      - name: Preparar ferramentas e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
-          # Ferramentas nativas do Ubuntu que o NERV precisa
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # Download do Magiskboot binário
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
@@ -77,35 +75,43 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download Firmwares
+      - name: Download firmware SOURCE (SM-S911B)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
+          DEST="$ODIN_DIR/SM-S911B_EUX"
+          mkdir -p "$DEST"
+          samloader download -m "SM-S911B" -r "EUX" -d "$DEST"
+          unzip -o $(find "$DEST" -name "*.zip") -d "$DEST"
           
-          # S23 (Donor One UI 7)
-          DEST_S="$ODIN_DIR/SM-S911B_EUX"
-          mkdir -p "$DEST_S"
-          samloader download -m "SM-S911B" -r "EUX" -d "$DEST_S"
-          unzip -o $(find "$DEST_S" -name "*.zip") -d "$DEST_S"
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
           
-          # A52s (Target)
-          DEST_T="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST_T"
-          samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3" -d "$DEST_T" || samloader download -m "SM-A528B" -r "BTU" -d "$DEST_T"
-          unzip -o $(find "$DEST_T" -name "*.zip") -d "$DEST_T"
+          # Lógica Mestra: Extrai a versão real do AP e corrige os arquivos .sh
+          REAL_VER=$(echo "$AP" | cut -d'_' -f2)
+          echo "Versão detectada: $REAL_VER"
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
           
-          # Marcadores .downloaded
-          find out/odin/ -name "AP_*.tar.md5" | while read ap; do
-            dir=$(dirname "$ap")
-            csc=$(find "$dir" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-            cp=$(find "$dir" -name "CP_*.tar.md5" | head -1 | xargs basename)
-            echo "$(basename "$ap")/$csc/$cp" > "$dir/.downloaded"
-          done
+          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"SM-S911B/EUX/${REAL_VER}\"|" target/a52sxq/config.sh
+          sed -i "s|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE=\"SM-S911B/EUX/${REAL_VER}\"|" unica/configs/qssi.sh
 
-      - name: Extract and Build ROM
+      - name: Download firmware TARGET (A52s)
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          DEST="$ODIN_DIR/SM-A528B_BTU"
+          mkdir -p "$DEST"
+          samloader download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3" -d "$DEST" || samloader download -m "SM-A528B" -r "BTU" -d "$DEST"
+          unzip -o $(find "$DEST" -name "*.zip") -d "$DEST"
+          
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+
+      - name: Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          export SOURCE_FIRMWARE="SM-S911B/EUX/latest"
           ./scripts/extract_fw.sh
           bash ./scripts/make_rom.sh
 
