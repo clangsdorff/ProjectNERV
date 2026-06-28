@@ -20,12 +20,12 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações (S23 FE e IMEIs)
+      - name: Ajustar Configurações para S23 FE + IMEI Válido
         run: |
-          # Reverte qualquer alteração anterior para garantir o S23 FE (SM-S711B)
+          # Volta tudo para o S23 FE (SM-S711B)
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
-          # Injeta os IMEIs de 15 dígitos para passar no validador do extract_fw.sh
+          # Injeta os IMEIs de 15 dígitos nas configs para PASSAR na validação do extract_fw.sh
           sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
 
@@ -68,7 +68,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Bypass build de ferramentas
+      - name: Bypass build de ferramentas (CHECK_TOOLS false)
         run: |
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
@@ -78,7 +78,7 @@ jobs:
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
 
-      - name: Criar links de ferramentas nativas
+      - name: Criar links de ferramentas e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
@@ -107,24 +107,23 @@ jobs:
           SAMLOADER="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST"
-          cd "$DEST"
           
           DOWNLOADED=false
-          # Tentando os firmwares corretos e existentes para o SM-S711B
+          # Tentando os firmwares reais do S23 FE
           for VERSION in "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" "S711BXXSAEXI1/S711BOXMAEXI1/S711BXXSAEXI1" "S711BXXSAEXF1/S711BOXMAEXF1/S711BXXSAEXF1"; do
              echo "Tentando $VERSION..."
-             $SAMLOADER download -m "SM-S711B" -r "EUX" -v "$VERSION" && DOWNLOADED=true && break || sleep 5
+             $SAMLOADER download -m "SM-S711B" -r "EUX" -v "$VERSION" -d "$DEST" && DOWNLOADED=true && break || sleep 5
           done
           
           [ "$DOWNLOADED" != "true" ] && echo "Firmware não encontrado no servidor" && exit 1
           
-          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" && rm -f "$ZIP"
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           
-          AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > ".downloaded"
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
 
       - name: Download firmware TARGET (SM-A528B / A52s)
         run: |
@@ -132,17 +131,16 @@ jobs:
           SAMLOADER="$HOME/.cargo/bin/samloader"
           DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST"
-          cd "$DEST"
           
-          $SAMLOADER download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" || $SAMLOADER download -m "SM-A528B" -r "BTU"
+          $SAMLOADER download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" -d "$DEST" || $SAMLOADER download -m "SM-A528B" -r "BTU" -d "$DEST"
           
-          ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" && rm -f "$ZIP"
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
           
-          AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > ".downloaded"
+          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find "$DEST" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
 
       - name: Extract Firmwares
         run: |
