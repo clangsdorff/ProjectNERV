@@ -26,7 +26,10 @@ jobs:
       - name: Set up environment
         run: |
           sudo apt update
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils pcre2-bin webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
+          # Configura a identidade do Git para o android-tools conseguir compilar
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
       - name: Install Rust and Samloader
         run: |
@@ -40,9 +43,6 @@ jobs:
         run: |
           # Ignora o samloader python
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
-          # Ignora a compilação do android-tools (que não baixamos os vendors)
-          sed -i 's/.*build_android_tools.*/# build_android_tools/g' external/make.sh || true
-          sed -i 's/.*build_android_tools.*/# build_android_tools/g' scripts/build_dependencies.sh || true
 
   build:
     runs-on: ubuntu-24.04
@@ -66,7 +66,11 @@ jobs:
           
       - name: Set up env
         run: |
-          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
+          sudo apt install -yq p7zip-full jq attr ccache clang ffmpeg golang libbrotli-dev libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev libzstd-dev lld protobuf-compiler pcre2-utils pcre2-bin webp curl xxd patchelf flex bison lz4 libarchive-tools build-essential python3.12-venv device-tree-compiler
+          # Configura a identidade do Git também na etapa final de build
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
           mkdir -p out/tools/venv/bin
@@ -75,8 +79,6 @@ jobs:
       - name: Bypass failing tools
         run: |
           find . -type f -name "*.sh" -exec sed -i 's/pip3 install \./true/g' {} +
-          sed -i 's/.*build_android_tools.*/# build_android_tools/g' external/make.sh || true
-          sed -i 's/.*build_android_tools.*/# build_android_tools/g' scripts/build_dependencies.sh || true
           
       - name: Build dependencies
         run: |
