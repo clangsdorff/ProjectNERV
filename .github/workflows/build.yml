@@ -22,11 +22,11 @@ jobs:
 
       - name: Ajustar Configurações e IMEIs de Validação
         run: |
-          # Garante que todo o projeto use o modelo correto S23 FE (S711B)
+          # Garante que todo o projeto use o modelo correto S23 FE (SM-S711B)
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           
           # Injeta IMEIs de 15 dígitos nas configs. Isso é OBRIGATÓRIO para o extract_fw.sh passar.
-          # O script NÃO usa essa versão para baixar, ele usa apenas para VALIDAR o ambiente.
+          # O script usa isso apenas para validar o formato da string.
           sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
           [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
@@ -59,6 +59,12 @@ jobs:
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           cargo build --release
           cp target/release/samloader $HOME/.cargo/bin/samloader
+
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
 
       - name: Bypass build de ferramentas (CHECK_TOOLS false)
         run: |
@@ -96,18 +102,19 @@ jobs:
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST" && cd "$DEST"
           
-          # Sintaxe CORRETA do Samloader Rust (exige as bandeiras --model e --region)
           VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
-          $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."
+          $SAMLOADER_BIN download -m "SM-S711B" -r "EUX" -v "$VERSION"
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
+          # Extrai os nomes exatos para o marcador .downloaded
           BL=$(find . -name "BL_*.tar.md5" | head -1 | xargs basename)
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          # O extrator precisa dos 4 arquivos no marcador .downloaded
+          
+          # IMPORTANTE: O formato deve ser AP/CSC/CP/BL
           echo "${AP}/${CSC}/${CP}/${BL}" > ".downloaded"
 
       - name: Download firmware TARGET (A52s)
@@ -117,9 +124,7 @@ jobs:
           DEST="$ODIN_DIR/SM-A528B_BTU"
           mkdir -p "$DEST" && cd "$DEST"
           
-          # Download A52s com sintaxe de bandeiras
-          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --version "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" --out-dir "." || \
-          $SAMLOADER_BIN download --model "SM-A528B" --region "BTU" --out-dir "."
+          $SAMLOADER_BIN download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" || $SAMLOADER_BIN download -m "SM-A528B" -r "BTU"
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
@@ -135,7 +140,7 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Garante que as variáveis de ambiente passadas ao script tenham o IMEI de 15 dígitos
+          # Força as variáveis de IMEI para o ambiente do extrator
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
           
@@ -146,7 +151,7 @@ jobs:
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          # Mantém os IMEIs ativos durante o build da imagem final
+          # Garante que os IMEIs continuam setados para o build final
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
           export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
           bash ./scripts/make_rom.sh
