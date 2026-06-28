@@ -20,14 +20,17 @@ jobs:
         with:
           submodules: false
 
-      - name: Remover submodules fantasma e configurar submodules reais
+      - name: Configurar submodules e corrigir erofs-utils
         run: |
+          # Remove lixo do índice
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
           git rm --cached -f external/samloader 2>/dev/null || true
+          
+          # Inicializa submodules necessários
           git submodule update --init external/erofs-utils external/apktool external/img2sdat external/signapk
           
-          # Correção Claude: Inicializar sub-submodules do erofs-utils
+          # Inicializa sub-submodules do erofs-utils (essencial para o cmake)
           cd external/erofs-utils
           git submodule update --init --recursive
           cd ../..
@@ -44,32 +47,35 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs webp pcre2-utils
 
-      - name: Instalar Rust e compilar samloader-rs (v1.2.0 + Patch)
+      - name: Instalar Rust e compilar samloader-rs
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
           git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
           cd /tmp/samloader-rs && git checkout 1.2.0
+          # Aplica patch local com -p3 para ignorar caminhos absolutos do diff
           patch -p3 < "${{ github.workspace }}/patches/samloader-rs/0001-version-select.patch"
           cargo build --release
           sudo cp target/release/samloader /usr/local/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Restore cache (Key v3)
-        uses: actions/cache/restore@v4
+      - name: Cache build tools (v3)
+        id: cache-tools
+        uses: actions/cache@v4
         with:
           path: out/tools
           key: tools-${{ runner.os }}-noandroid-v3
 
-      - name: Criar links de ferramentas e Magiskboot
+      - name: Preparar ambiente e links de ferramentas
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
+          # Linkar ferramentas nativas para pular builds
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # Magiskboot pré-compilado
+          # Baixar Magiskboot binário
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
@@ -77,19 +83,56 @@ jobs:
           chmod +x out/tools/bin/magiskboot
           ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
 
-      - name: Patch build_dependencies.sh (Flags False)
+      - name: Patch build_dependencies.sh e Build
         run: |
-          # Patch cirúrgico antes do build para pular ferramentas quebradas
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Força skip de ferramentas problemáticas
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
-          echo "=== Flags configuradas ==="
-          grep -E "^(ANDROID_TOOLS|APKTOOL|SIGNAPK|SAMLOADER)=" scripts/build_dependencies.sh
-
-      - name: Build dependencies
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
           source ./buildenv.sh ${{ matrix.target }}
-          ./scripts/build_dependencies
+          ./scripts/build_dependencies.sh
+
+      - name: Download Firmwares (S23 Donor + A52s Target)
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          
+          # S23 (Donor One UI 7)
+          MODEL_S="SM-S911B"
+          DEST_S="$ODIN_DIR/${MODEL_S}_EUX"
+          mkdir -p "$DEST_S"
+          samloader download -m "$MODEL_S" -r "EUX" -v "S911BXXSAEYI1" -d "$DEST_S" || samloader download -m "$MODEL_S" -r "EUX" -d "$DEST_S"
+          unzip -o $(find "$DEST_S" -name "*.zip") -d "$DEST_S"
+          
+          # A52s (Target)
+          MODEL_T="SM-A528B"
+          DEST_T="$ODIN_DIR/${MODEL_T}_BTU"
+          mkdir -p "$DEST_T"
+          samloader download -m "$MODEL_T" -r "BTU" -v "A528BXXSBGYI3" -d "$DEST_T" || samloader download -m "$MODEL_T" -r "BTU" -d "$DEST_T"
+          unzip -o $(find "$DEST_T" -name "*.zip") -d "$DEST_T"
+          
+          # Criar marcadores .downloaded para o script de extração
+          find out/odin/ -name "AP_*.tar.md5" | while read ap; do
+            dir=$(dirname "$ap")
+            csc=$(find "$dir" \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+            cp=$(find "$dir" -name "CP_*.tar.md5" | head -1 | xargs basename)
+            echo "$(basename "$ap")/$csc/$cp" > "$dir/.downloaded"
+          done
+
+      - name: Extract and Build ROM
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
+          ./scripts/extract_fw.sh
+          bash ./scripts/make_rom.sh
+
+      - name: Upload Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjectNERV-A52s-OneUI7
+          path: out/*.zip
