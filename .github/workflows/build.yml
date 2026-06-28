@@ -24,8 +24,12 @@ jobs:
       - name: Configurar Ambiente
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache
-          pip3 install --user samloader-rs
+          sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils
+          # Instalando samloader via git já que o pip falhou
+          git clone https://github.com/luisbocanegra/samloader-rs.git /tmp/samloader-rs
+          cd /tmp/samloader-rs && cargo build --release
+          mkdir -p $HOME/.local/bin
+          cp target/release/samloader $HOME/.local/bin/
 
       - name: Ajustar Configurações (A52s)
         run: |
@@ -64,6 +68,11 @@ jobs:
 
       - name: Build ProjectNERV
         run: |
+          # Bypass da compilação do erofs-utils (usa o do sistema)
+          mkdir -p bin
+          ln -sf /usr/bin/mkfs.erofs bin/mkfs.erofs
+          ln -sf /usr/bin/extract.erofs bin/extract.erofs
+          
           chmod +x buildenv.sh
           ./buildenv.sh ${{ matrix.target }}
 
