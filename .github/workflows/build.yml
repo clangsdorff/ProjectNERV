@@ -32,14 +32,14 @@ jobs:
           find unica/configs/ -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
           find unica/configs/ -name "*.sh" -exec sed -i 's/352404911234563/S711BXXSAEYI1/g' {} +
 
-      - name: Remover submodules fantasma
+      - name: Remover submodules fantasma do índice git
         run: |
           git rm --cached -f target/a53x/patches/vendor 2>/dev/null || true
           git rm --cached -f target/m34x/patches/vendor 2>/dev/null || true
           git rm --cached -f external/samloader 2>/dev/null || true
           git submodule update --init
 
-      - name: Instalar dependências
+      - name: Instalar dependências do sistema
         run: |
           sudo apt-get update
           sudo apt-get install -yq \
@@ -51,12 +51,29 @@ jobs:
             device-tree-compiler android-sdk-libsparse-utils adb fastboot \
             e2fsprogs
 
-      - name: Instalar Rust e samloader-rs
+      - name: Instalar Rust e compilar samloader-rs com patch local
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           source $HOME/.cargo/env
-          cargo install samloader
+
+          # Clonar samloader-rs do topjohnwu (não o do crates.io)
+          git clone https://github.com/topjohnwu/samloader-rs.git /tmp/samloader-rs
+          cd /tmp/samloader-rs
+          git checkout 1.2.0
+
+          # Aplicar o patch local que já existe no seu repositório clonado
+          git apply "$GITHUB_WORKSPACE/patches/samloader-rs/0001-version-select.patch"
+
+          cargo build --release
+          cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "samloader: $(samloader --version 2>/dev/null || samloader -V 2>/dev/null || echo 'ok')"
+
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
 
       - name: Patch build_dependencies.sh (Flags False)
         run: |
@@ -75,66 +92,105 @@ jobs:
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
+          
+          # magiskboot — baixar do Magisk APK
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
 
-      - name: Download firmware SOURCE (S23 FE)
+          # samloader link
+          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
+
+          # signapk — stubs
+          touch out/tools/bin/signapk.jar
+          printf '#!/bin/sh\ntrue\n' > out/tools/bin/signapk
+          chmod +x out/tools/bin/signapk
+
+      - name: Build dependencies (deve pular tudo via CHECK_TOOLS)
         run: |
-          # Tentamos SM-S711B / EUX / S711BXXSAEYI1
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          source ./buildenv.sh ${{ matrix.target }}
+          ./scripts/build_dependencies.sh
+
+      - name: Download firmware SOURCE (SM-S711B / S23 FE)
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          source $HOME/.cargo/env
           MODEL="SM-S711B"
           REGION="EUX"
           VERSION="S711BXXSAEYI1"
-          DEST="out/odin/${MODEL}_${REGION}"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST"
-          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find "$DEST" -name "CSC_*.tar.md5" | head -1 | xargs basename)
-          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
 
-      - name: Download firmware TARGET (A52s)
+          for i in 1 2 3 4 5; do
+            echo "Tentativa $i..."
+            samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
+              && break || sleep 20
+          done
+
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
+
+          AP=$(find  "$DEST" -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          CSC=$(find "$DEST" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
+          CP=$(find  "$DEST" -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+          echo "Marker: $(cat $DEST/.downloaded)"
+
+      - name: Download firmware TARGET (SM-A528B / A52s)
         run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          source $HOME/.cargo/env
           MODEL="SM-A528B"
           REGION="BTU"
           VERSION="A528BXXSBGYI3"
-          DEST="out/odin/${MODEL}_${REGION}"
+          DEST="$ODIN_DIR/${MODEL}_${REGION}"
           mkdir -p "$DEST"
-          samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST"
-          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
-          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
-          AP=$(find "$DEST" -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC=$(find "$DEST" -name "CSC_*.tar.md5" | head -1 | xargs basename)
-          CP=$(find "$DEST" -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
 
-      - name: Extract and Build ROM
+          for i in 1 2 3 4 5; do
+            echo "Tentativa $i..."
+            samloader download -m "$MODEL" -r "$REGION" -v "$VERSION" -d "$DEST" \
+              && break || sleep 20
+          done
+
+          ZIP=$(find "$DEST" -maxdepth 1 -name "*.zip" | head -1)
+          [ -z "$ZIP" ] && echo "ZIP não encontrado" && exit 1
+          unzip -o "$ZIP" -d "$DEST" && rm -f "$ZIP"
+
+          AP=$(find  "$DEST" -maxdepth 1 -name "AP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          CSC=$(find "$DEST" -maxdepth 1 \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs -I{} basename {})
+          CP=$(find  "$DEST" -maxdepth 1 -name "CP_*.tar.md5"  | head -1 | xargs -I{} basename {})
+          echo "${AP}/${CSC}/${CP}" > "$DEST/.downloaded"
+          echo "Marker: $(cat $DEST/.downloaded)"
+
+      - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          # Garante que o source firmware está correto no ambiente antes de extrair
-          export SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
+
+      - name: Build ROM
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          export SKIP_DEPENDENCY_CHECK=1
           bash ./scripts/make_rom.sh
 
-      - name: Upload para GoFile
-        if: always()
+      - name: Upload
         run: |
-          ZIP_FILE=$(find out -maxdepth 1 -name "*.zip" | head -1)
+          ZIP_FILE=$(find out -maxdepth 1 -type f -name "*.zip" | head -n 1)
           if [ -n "$ZIP_FILE" ]; then
-            SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
-            RESPONSE=$(curl -s -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile")
-            echo "Link: $(echo "$RESPONSE" | jq -r '.data.downloadPage')"
+             SERVER=$(curl -s "https://api.gofile.io/servers" | jq -r '.data.servers[0].name')
+             curl -F "file=@${ZIP_FILE}" "https://${SERVER}.gofile.io/contents/uploadfile")
+             cp "$ZIP_FILE" ./rom_final.zip
           fi
-
-      - name: Salvar artefato
-        if: always()
+          
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ROM-A52s-Final
-          path: out/*.zip
+          name: ROM-A52s
+          path: rom_final.zip
