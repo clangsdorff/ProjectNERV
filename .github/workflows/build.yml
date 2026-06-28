@@ -20,15 +20,16 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações e IMEIs de Validação
+      - name: Corrigir Configurações (S23 FE One UI 7)
         run: |
-          # Garante o modelo correto S23 FE (SM-S711B)
+          # Força o S23 FE em qualquer script global ou de target de forma limpa
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
+          find . -name "*.sh" -exec sed -i 's/S911BXXSAEYI1/S711BXXSAEYI1/g' {} +
           
-          # Injeta IMEIs de 15 dígitos reais. Isso é OBRIGATÓRIO para o extract_fw.sh passar no validador.
-          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
-          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
-          [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh || true
+          # Garante o config do target com a versão real S711BXXSAEYI1
+          sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"|' target/a52sxq/config.sh
+          sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"|' target/a52sxq/config.sh
+          [ -f "unica/configs/qssi.sh" ] && sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"|' unica/configs/qssi.sh || true
 
       - name: Remover submodules fantasma
         run: |
@@ -60,27 +61,34 @@ jobs:
           cp target/release/samloader $HOME/.cargo/bin/samloader
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Bypass build de ferramentas e preparar links
+      - name: Configurar JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Bypass build de ferramentas
         run: |
-          # Desabilita build de ferramentas que já temos
+          # Desabilita o build de ferramentas que já temos no sistema
           sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
           sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
           sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
           sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
-          
+
+      - name: Criar links e Magiskboot
+        run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
           
-          # Magiskboot binário pronto
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
           mv /tmp/libmagiskboot.so out/tools/bin/magiskboot
           chmod +x out/tools/bin/magiskboot
-          ln -sf $HOME/.cargo/bin/samloader out/tools/venv/bin/samloader
+          ln -sf /usr/local/bin/samloader out/tools/venv/bin/samloader
 
       - name: Build dependencies
         run: |
@@ -96,17 +104,20 @@ jobs:
           DEST="$ODIN_DIR/SM-S711B_EUX"
           mkdir -p "$DEST" && cd "$DEST"
           
+          # Download direto na pasta destino usando a string completa
           VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
           $SAMLOADER_BIN download --model "SM-S711B" --region "EUX" --version "$VERSION" --out-dir "."
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
           
-          # O marcador deve ter apenas 3 partes (AP/CSC/CP). O BL é achado pelo find automático.
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          
+          # O marcador clássico do NERV exige apenas AP/CSC/CP. O BL é localizado automaticamente no diretório.
           echo "${AP}/${CSC}/${CP}" > ".downloaded"
+          echo "Marker SOURCE criado: $(cat .downloaded)"
 
       - name: Download firmware TARGET (A52s)
         run: |
@@ -120,19 +131,21 @@ jobs:
           
           ZIP=$(find . -maxdepth 1 -name "*.zip" | head -1)
           unzip -o "$ZIP" && rm -f "$ZIP"
+          
           AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
           CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
           CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
           echo "${AP}/${CSC}/${CP}" > ".downloaded"
+          echo "Marker TARGET criado: $(cat .downloaded)"
 
       - name: Extract Firmwares
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Força os IMEIs de 15 dígitos no ambiente do extrator
-          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
-          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          # Força as variáveis corretas com a versão One UI 7 real no ambiente
+          export SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"
+          export TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
           
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
@@ -142,9 +155,9 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
           
-          # Mantém os IMEIs ativos para o build final da imagem
-          export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
-          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
+          export SOURCE_FIRMWARE="SM-S711B/EUX/S711BXXSAEYI1"
+          export TARGET_FIRMWARE="SM-A528B/BTU/A528BXXSBGYI3"
+          
           bash ./scripts/make_rom.sh
 
       - name: Upload Artifact
