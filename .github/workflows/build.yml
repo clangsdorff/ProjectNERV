@@ -25,11 +25,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils
-          # Instalando samloader via git já que o pip falhou
-          git clone https://github.com/luisbocanegra/samloader-rs.git /tmp/samloader-rs
-          cd /tmp/samloader-rs && cargo build --release
+          
+          # Baixa o binário pré-compilado do samloader-rs para evitar erro de Rust
           mkdir -p $HOME/.local/bin
-          cp target/release/samloader $HOME/.local/bin/
+          curl -L https://github.com/luisbocanegra/samloader-rs/releases/latest/download/samloader-x86_64-unknown-linux-gnu.tar.gz | tar xz -C $HOME/.local/bin/
+          chmod +x $HOME/.local/bin/samloader
 
       - name: Ajustar Configurações (A52s)
         run: |
@@ -45,6 +45,7 @@ jobs:
           mkdir -p $HOME/custom_bin
           cat << 'EOF' > $HOME/custom_bin/samloader
           #!/bin/bash
+          # Simula a resposta do check-update para evitar timeouts
           if [[ "$*" == *"check-update"* ]] || [[ "$*" == *"checkupdate"* ]]; then
             if [[ "$*" == *"SM-S711B"* ]]; then
               echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
@@ -54,12 +55,12 @@ jobs:
               exit 0
             fi
           fi
-          # Adiciona retry no download real
-          MAX_RETRIES=3
+          # Executa o samloader real com retry
+          MAX_RETRIES=5
           for i in $(seq 1 $MAX_RETRIES); do
             $HOME/.local/bin/samloader "$@" && exit 0
-            echo "Tentativa $i falhou. Reiniciando em 10s..."
-            sleep 10
+            echo "Tentativa $i falhou. Reiniciando em 15s..."
+            sleep 15
           done
           exit 1
           EOF
@@ -68,7 +69,8 @@ jobs:
 
       - name: Build ProjectNERV
         run: |
-          # Bypass da compilação do erofs-utils (usa o do sistema)
+          # Bypass da compilação do erofs-utils (usa o do sistema Ubuntu)
+          # Isso evita o erro de diretório inexistente no seu fork
           mkdir -p bin
           ln -sf /usr/bin/mkfs.erofs bin/mkfs.erofs
           ln -sf /usr/bin/extract.erofs bin/extract.erofs
