@@ -20,19 +20,11 @@ jobs:
         with:
           submodules: false
 
-      - name: Ajustar Configurações (S23 FE + IMEIs de Validação)
+      - name: Ajustar Configurações (IMEIs)
         run: |
-          # Garante que todo o projeto use o modelo S23 FE (S711B)
           find . -name "*.sh" -exec sed -i 's/SM-S911B/SM-S711B/g' {} +
-          
-          # Injeta IMEIs de 15 dígitos para passar no 'regex' do extract_fw.sh
-          # O script de extração EXIGE 15 números para não dar erro de "No valid IMEI"
           sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' target/a52sxq/config.sh
           sed -i 's|TARGET_FIRMWARE=.*|TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"|' target/a52sxq/config.sh
-          
-          if [ -f "unica/configs/qssi.sh" ]; then
-            sed -i 's|SOURCE_FIRMWARE=.*|SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"|' unica/configs/qssi.sh
-          fi
 
       - name: Remover submodules fantasma
         run: |
@@ -69,14 +61,23 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Preparar ferramentas e Magiskboot
+      - name: Bypass build de ferramentas
+        run: |
+          sed -i 's/^ANDROID_TOOLS=true$/ANDROID_TOOLS=false/' scripts/build_dependencies.sh
+          sed -i 's/^APKTOOL=true$/APKTOOL=false/'             scripts/build_dependencies.sh
+          sed -i 's/^EROFS_UTILS=true$/EROFS_UTILS=false/'     scripts/build_dependencies.sh
+          sed -i 's/^IMG2SDAT=true$/IMG2SDAT=false/'           scripts/build_dependencies.sh
+          sed -i 's/^MAGISKBOOT=true$/MAGISKBOOT=false/'       scripts/build_dependencies.sh
+          sed -i 's/^SAMLOADER=true$/SAMLOADER=false/'        scripts/build_dependencies.sh
+          sed -i 's/^SIGNAPK=true$/SIGNAPK=false/'            scripts/build_dependencies.sh
+
+      - name: Criar links e Magiskboot
         run: |
           mkdir -p out/tools/bin out/tools/venv/bin
           ln -sf $(which simg2img) out/tools/bin/simg2img
           ln -sf $(which img2simg) out/tools/bin/img2simg
           ln -sf $(which mke2fs)   out/tools/bin/mke2fs
           ln -sf $(which e2fsdroid) out/tools/bin/e2fsdroid
-          
           MAGISK_URL=$(curl -s https://api.github.com/repos/topjohnwu/Magisk/releases/latest | jq -r '.assets[] | .browser_download_url' | grep "Magisk-v.*\.apk$")
           curl -L -s -o /tmp/magisk.apk "$MAGISK_URL"
           unzip -q -j /tmp/magisk.apk "lib/x86_64/libmagiskboot.so" -d /tmp/
@@ -91,44 +92,69 @@ jobs:
           source ./buildenv.sh ${{ matrix.target }}
           ./scripts/build_dependencies.sh
 
-      - name: Download Firmwares (S23 FE + A52s)
+      - name: Download firmware SOURCE (SM-S711B / S23 FE)
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           SAMLOADER="$HOME/.cargo/bin/samloader"
+          DEST="$ODIN_DIR/SM-S711B_EUX"
+          mkdir -p "$DEST"
+          cd "$DEST"
           
-          # 1. SOURCE (S23 FE)
-          DEST_S="$ODIN_DIR/SM-S711B_EUX"
-          mkdir -p "$DEST_S" && cd "$DEST_S"
-          $SAMLOADER download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
+          VERSION="S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1"
+          DOWNLOADED=false
+          
+          for i in {1..8}; do
+             echo "Tentativa $i de download do SOURCE..."
+             if $SAMLOADER download -m "SM-S711B" -r "EUX" -v "$VERSION"; then
+                DOWNLOADED=true
+                break
+             fi
+             echo "Erro no download. Limpando arquivos parciais e tentando novamente em 30s..."
+             rm -f *.zip *.enc4 *.tmp
+             sleep 30
+          done
+          
+          [ "$DOWNLOADED" != "true" ] && exit 1
           unzip -o *.zip && rm -f *.zip
-          
-          AP_S=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC_S=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP_S=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP_S}/${CSC_S}/${CP_S}" > ".downloaded"
-          cd ../../..
+          AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
-          # 2. TARGET (A52s)
-          DEST_T="$ODIN_DIR/SM-A528B_BTU"
-          mkdir -p "$DEST_T" && cd "$DEST_T"
-          $SAMLOADER download -m "SM-A528B" -r "BTU" -v "A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3" || $SAMLOADER download -m "SM-A528B" -r "BTU"
-          unzip -o *.zip && rm -f *.zip
+      - name: Download firmware TARGET (A52s)
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          SAMLOADER="$HOME/.cargo/bin/samloader"
+          DEST="$ODIN_DIR/SM-A528B_BTU"
+          mkdir -p "$DEST"
+          cd "$DEST"
           
-          AP_T=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
-          CSC_T=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
-          CP_T=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
-          echo "${AP_T}/${CSC_T}/${CP_T}" > ".downloaded"
-          cd ../../..
+          VERSION="A528BXXSBGYI3/A528BOXMBGYI3/A528BXXSBGYI3"
+          DOWNLOADED=false
+          
+          for i in {1..8}; do
+             echo "Tentativa $i de download do TARGET..."
+             if $SAMLOADER download -m "SM-A528B" -r "BTU" -v "$VERSION"; then
+                DOWNLOADED=true
+                break
+             fi
+             echo "Conexão caiu. Limpando e tentando novamente em 30s..."
+             rm -f *.zip *.enc4 *.tmp
+             sleep 30
+          done
+          
+          [ "$DOWNLOADED" != "true" ] && exit 1
+          unzip -o *.zip && rm -f *.zip
+          AP=$(find . -name "AP_*.tar.md5" | head -1 | xargs basename)
+          CSC=$(find . \( -name "CSC_*.tar.md5" -o -name "HOME_CSC_*.tar.md5" \) | head -1 | xargs basename)
+          CP=$(find . -name "CP_*.tar.md5" | head -1 | xargs basename)
+          echo "${AP}/${CSC}/${CP}" > ".downloaded"
 
       - name: Extract and Build ROM
         run: |
           source ./buildenv.sh ${{ matrix.target }}
           export SKIP_DEPENDENCY_CHECK=1
-          
-          # Força as variáveis corretas no ambiente do shell para o extrator
           export SOURCE_FIRMWARE="SM-S711B/EUX/352404911234563"
-          export TARGET_FIRMWARE="SM-A528B/BTU/352599501234566"
-          
           ./scripts/extract_fw.sh --ignore-target
           ./scripts/extract_fw.sh --ignore-source
           bash ./scripts/make_rom.sh
