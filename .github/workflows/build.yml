@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - 'fifteen'
+  pull_request:
+    branches:
+      - 'fifteen'
+  schedule:
+    - cron: '0 2 * * *' # daily at 02:00 UTC
 
 jobs:
   build:
@@ -24,7 +29,10 @@ jobs:
       - name: Configurar Ambiente
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential zip curl libssl-dev pkg-config clang cmake ccache erofs-utils cwebp ffmpeg getfattr pcre2-utils protobuf-compiler
+          sudo apt-get install -y \
+            bc build-essential zip curl libssl-dev pkg-config clang cmake ccache \
+            erofs-utils cwebp ffmpeg getfattr pcre2-utils protobuf-compiler \
+            p7zip-full lz4 zstd brotli default-jdk jq vim-common unzip webp libwebp-dev
           
           # Baixa e extrai o samloader-rs
           mkdir -p $HOME/.local/bin
@@ -71,6 +79,17 @@ jobs:
           chmod +x $HOME/custom_bin/samloader
           echo "$HOME/custom_bin" >> $GITHUB_PATH
 
+      - name: Init submodules
+        run: |
+          git submodule sync --recursive || true
+          git submodule update --init --recursive || true
+          git submodule foreach --recursive 'git reset --hard || true'
+
+      - name: Build required tools
+        run: |
+          chmod +x scripts/build_dependencies.sh
+          ./scripts/build_dependencies.sh || true
+
       - name: Build ProjectNERV
         run: |
           # Bypass da compilação do erofs-utils
@@ -85,6 +104,16 @@ jobs:
           # Inicia o build da ROM
           chmod +x scripts/make_rom.sh
           ./scripts/make_rom.sh --force
+
+      - name: Collect build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: projectnerv-logs-${{ matrix.target }}
+          path: |
+            out/*.log
+            out/**/*.log
+            out/*-*.log
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
