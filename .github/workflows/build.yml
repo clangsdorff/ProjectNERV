@@ -121,6 +121,19 @@ jobs:
             out/*-*.log
 
       - name: Upload Artifact
+        if: always()
+        run: |
+          echo "Listing output directory..."
+          find out -maxdepth 2 -type f | sort || true
+          if ls out/*.zip >/dev/null 2>&1; then
+            echo "Found ROM zip artifacts"
+          else
+            echo "No ROM zip artifact found"
+            exit 0
+          fi
+
+      - name: Upload ROM ZIP
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ProjectNERV-${{ matrix.target }}
