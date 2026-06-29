@@ -31,12 +31,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             bc build-essential zip curl libssl-dev pkg-config clang cmake ccache \
-            erofs-utils ffmpeg pcre2-utils protobuf-compiler \
+            erofs-utils ffmpeg pcre2-utils protobuf-compiler attr \
             p7zip-full lz4 zstd brotli default-jdk jq vim-common unzip \
             webp libwebp-dev libfuse2 python3-pip python3-venv
 
           sudo apt-get install -y libattr1-dev || true
           sudo apt-get install -y libfuse-dev || true
+
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git config --global --add safe.directory "$(pwd)"
           
           # Baixa e extrai o samloader-rs
           mkdir -p $HOME/.local/bin
