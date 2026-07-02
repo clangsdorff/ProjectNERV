@@ -167,36 +167,36 @@ jobs:
         id: cache-source-fw
         uses: actions/cache/restore@v5
         with:
-          path: out/fw/SM-S711B_EUX
-          key: source-fw-${{ matrix.target }}-S711BXXSAEYI1
+          path: out/fw/SM-G990B_EUX
+          key: source-fw-${{ matrix.target }}-G990BXXSGHYI1
 
       - name: Restore source firmware download marker
         if: steps.cache-source-fw.outputs.cache-hit == 'true'
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          mkdir -p "$ODIN_DIR/SM-S711B_EUX"
-          echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" > "$ODIN_DIR/SM-S711B_EUX/.downloaded"
+          mkdir -p "$ODIN_DIR/SM-G990B_EUX"
+          echo "G990BXXSGHYI1/G990BOXMGHYI1/G990BXXSGHYI1" > "$ODIN_DIR/SM-G990B_EUX/.downloaded"
 
       - name: Download source firmware
         if: steps.cache-source-fw.outputs.cache-hit != 'true'
         run: |
           source ./buildenv.sh ${{ matrix.target }}
-          mkdir -p "$ODIN_DIR/SM-S711B_EUX"
+          mkdir -p "$ODIN_DIR/SM-G990B_EUX"
           THREADS=8
           for i in 1 2 3 4 5; do
-            rm -rf "$ODIN_DIR/SM-S711B_EUX" && mkdir -p "$ODIN_DIR/SM-S711B_EUX"
-            samloader download -m "SM-S711B" -r "EUX" -v "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" -j "$THREADS" -d "$ODIN_DIR/SM-S711B_EUX" && break
+            rm -rf "$ODIN_DIR/SM-G990B_EUX" && mkdir -p "$ODIN_DIR/SM-G990B_EUX"
+            samloader download -m "SM-G990B" -r "EUX" -v "G990BXXSGHYI1/G990BOXMGHYI1/G990BXXSGHYI1" -j "$THREADS" -d "$ODIN_DIR/SM-G990B_EUX" && break
             echo "Attempt $i failed, retrying with $THREADS threads..."
             [ "$THREADS" -gt 1 ] && THREADS=$(( THREADS / 2 ))
             sleep 10
           done
-          ZIP_FILE=$(find "$ODIN_DIR/SM-S711B_EUX" -maxdepth 1 -name "*.zip" | head -n 1)
+          ZIP_FILE=$(find "$ODIN_DIR/SM-G990B_EUX" -maxdepth 1 -name "*.zip" | head -n 1)
           if [ -z "$ZIP_FILE" ]; then
             echo "Download failed after 5 attempts"
             exit 1
           fi
-          unzip -o "$ZIP_FILE" -d "$ODIN_DIR/SM-S711B_EUX" && rm -f "$ZIP_FILE"
-          echo "S711BXXSAEYI1/S711BOXMAEYI1/S711BXXSAEYI1" > "$ODIN_DIR/SM-S711B_EUX/.downloaded"
+          unzip -o "$ZIP_FILE" -d "$ODIN_DIR/SM-G990B_EUX" && rm -f "$ZIP_FILE"
+          echo "G990BXXSGHYI1/G990BOXMGHYI1/G990BXXSGHYI1" > "$ODIN_DIR/SM-G990B_EUX/.downloaded"
 
       - name: Extract source firmware
         if: steps.cache-source-fw.outputs.cache-hit != 'true'
@@ -208,8 +208,8 @@ jobs:
         if: steps.cache-source-fw.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
-          path: out/fw/SM-S711B_EUX
-          key: source-fw-${{ matrix.target }}-S711BXXSAEYI1
+          path: out/fw/SM-G990B_EUX
+          key: source-fw-${{ matrix.target }}-G990BXXSGHYI1
 
       - name: Restore target firmware extraction cache
         id: cache-target-fw
